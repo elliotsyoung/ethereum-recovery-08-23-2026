@@ -1,0 +1,25 @@
+{
+  "name": "ethereum-recovery-08-23-2026",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-only Ethereum keystore password recovery dashboard and recovery engine.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "benchmark": "node server/recovery/benchmark.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/elliotsyoung/ethereum-recovery-08-23-2026"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^6.17.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

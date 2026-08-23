@@ -1,0 +1,34 @@
+{
+  "patterns": [
+    {
+      "name": "word1+word2+number+suffix",
+      "slots": ["word1", "word2", "number", "suffix"],
+      "word1": ["Briar", "Cinder", "Drift", "Ember", "Fable", "Grove", "Harbor"],
+      "word2": ["Bloom", "Fjord", "Harbor", "Lumen", "North", "Quill", "Summit"],
+      "number": ["01", "07", "12", "22", "44", "77", "88"],
+      "suffix": ["!", "!!", "**", "$$", "&&"]
+    },
+    {
+      "name": "word1+number+word2+suffix",
+      "slots": ["word1", "number", "word2", "suffix"],
+      "word1": ["Briar", "Cinder", "Drift", "Ember", "Fable", "Grove", "Harbor"],
+      "number": ["09", "14", "21", "32", "47", "55", "66"],
+      "word2": ["Bloom", "Fjord", "Harbor", "Lumen", "North", "Quill", "Summit"],
+      "suffix": ["!", "!!", "**", "$$", "&&"]
+    },
+    {
+      "name": "word1+symbol+word2+number+suffix",
+      "slots": ["word1", "symbol", "word2", "number", "suffix"],
+      "word1": ["Briar", "Cinder", "Drift", "Ember", "Fable", "Grove", "Harbor"],
+      "symbol": ["@", "#", "$", "%", "&"],
+      "word2": ["Bloom", "Fjord", "Harbor", "Lumen", "North", "Quill", "Summit"],
+      "number": ["03", "09", "18", "29", "45", "72", "99"],
+      "suffix": ["!", "!!", "**", "$$", "&&"]
+    }
+  ],
+  "capitalization": ["none", "title", "upper", "lower"],
+  "mutations": {
+    "word1": ["none", "double-last", "drop-vowel"],
+    "word2": ["none", "double-last", "drop-vowel"]
+  }
+}

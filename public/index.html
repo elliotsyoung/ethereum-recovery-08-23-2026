@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Recovery Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Wallet Recovery Dashboard</h1>
+        </div>
+        <div class="mode-wrap">
+          <label for="modeSelect">Mode</label>
+          <select id="modeSelect">
+            <option value="DEMO">DEMO</option>
+            <option value="REAL">REAL</option>
+          </select>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel status-panel">
+          <h2>Recovery Status</h2>
+          <div class="stats-grid">
+            <div><span class="label">State</span><strong id="stateValue">idle</strong></div>
+            <div><span class="label">Total guesses</span><strong id="totalGuessesValue">0</strong></div>
+            <div><span class="label">Guesses / sec</span><strong id="guessesPerSecondValue">0</strong></div>
+            <div><span class="label">Guesses / hour</span><strong id="guessesPerHourValue">0</strong></div>
+            <div><span class="label">Elapsed</span><strong id="elapsedValue">0s</strong></div>
+            <div><span class="label">Candidate index</span><strong id="candidateIndexValue">0</strong></div>
+            <div><span class="label">Current pattern</span><strong id="currentPatternValue">n/a</strong></div>
+            <div><span class="label">Candidate space</span><strong id="candidateSpaceValue">0</strong></div>
+            <div><span class="label">Complete</span><strong id="completeValue">0%</strong></div>
+            <div><span class="label">Remaining</span><strong id="remainingValue">0s</strong></div>
+            <div><span class="label">Last checkpoint</span><strong id="checkpointValue">n/a</strong></div>
+            <div><span class="label">Matches found</span><strong id="matchesValue">0</strong></div>
+          </div>
+
+          <div class="progress-block">
+            <div class="progress-track"><div id="progressBar" class="progress-fill"></div></div>
+          </div>
+
+          <div class="button-row">
+            <button id="startBtn">Start</button>
+            <button id="pauseBtn">Pause</button>
+            <button id="resumeBtn">Resume</button>
+            <button id="stopBtn">Stop</button>
+            <button id="benchmarkBtn">Benchmark</button>
+          </div>
+
+          <canvas id="chartCanvas" width="700" height="180"></canvas>
+        </section>
+
+        <section class="panel pattern-panel">
+          <h2>Pattern Editor</h2>
+          <textarea id="patternJson" rows="18"></textarea>
+          <div class="editor-actions">
+            <button id="savePatternsBtn">Apply Patterns</button>
+            <span id="candidateEstimate">Estimated candidates: 0</span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
