@@ -20,13 +20,13 @@ async function createTestWallet() {
 
 test('wrong password fails', async () => {
   const { encrypted } = await createTestWallet();
-  assert.equal(verifyCandidate(encrypted, 'bad-password'), false);
+  assert.equal(await verifyCandidate(encrypted, 'bad-password'), false);
   fs.unlinkSync(testWalletPath);
 });
 
 test('correct password succeeds', async () => {
   const { encrypted } = await createTestWallet();
-  assert.equal(verifyCandidate(encrypted, 'StrongPass123!'), true);
+  assert.equal(await verifyCandidate(encrypted, 'StrongPass123!'), true);
   fs.unlinkSync(testWalletPath);
 });
 
@@ -69,5 +69,5 @@ test('demo wallet creation works', async () => {
   const walletPath = await ensureDemoWallet();
   const parsed = readKeystoreFile(walletPath);
   assert.equal(parsed.version, 3);
-  assert.equal(verifyCandidate(parsed, 'DemoPass123!'), true);
+  assert.equal(await verifyCandidate(parsed, 'DemoPass123!'), true);
 });

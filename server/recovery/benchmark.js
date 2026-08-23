@@ -2,7 +2,7 @@ const { performance } = require('node:perf_hooks');
 const { verifyCandidate, ensureDemoWallet, readKeystoreFile } = require('./walletVerifier');
 const { generateCandidate, getDefaultPatternConfig } = require('./candidateGenerator');
 
-async function runBenchmark({ iterations = 5000, config = getDefaultPatternConfig() } = {}) {
+async function runBenchmark({ iterations = 500, config = getDefaultPatternConfig() } = {}) {
   const walletPath = await ensureDemoWallet();
   const keystore = readKeystoreFile(walletPath);
   const start = performance.now();
@@ -10,7 +10,7 @@ async function runBenchmark({ iterations = 5000, config = getDefaultPatternConfi
   let badMatches = 0;
   for (let i = 0; i < iterations; i += 1) {
     const candidate = generateCandidate(config, i);
-    if (verifyCandidate(keystore, candidate)) {
+    if (await verifyCandidate(keystore, candidate)) {
       badMatches += 1;
     }
     checks += 1;

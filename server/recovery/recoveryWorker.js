@@ -64,7 +64,7 @@ parentPort.on('message', (message) => {
     while (state === 'running' && !stopRequested && batch < 2000) {
       const currentPattern = patternForIndex(config, candidateIndex).pattern.name;
       const candidate = generateCandidate(config, candidateIndex);
-      const found = verifyCandidate(keystore, candidate);
+      const found = await verifyCandidate(keystore, candidate);
       totalAttempted += 1;
       if (found) {
         matchesFound += 1;

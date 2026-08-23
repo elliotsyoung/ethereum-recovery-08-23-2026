@@ -9,13 +9,13 @@ function parseKeystore(input) {
   return input;
 }
 
-function verifyCandidate(keystore, candidate) {
+async function verifyCandidate(keystore, candidate) {
   try {
     const parsed = parseKeystore(keystore);
     if (!parsed || typeof parsed !== 'object' || !parsed.version || parsed.version !== 3) {
       return false;
     }
-    Wallet.fromEncryptedJson(JSON.stringify(parsed), candidate);
+    await Wallet.fromEncryptedJson(JSON.stringify(parsed), candidate);
     return true;
   } catch (error) {
     return false;
