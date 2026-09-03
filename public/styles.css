@@ -14,7 +14,7 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: Georgia, 'Times New Roman', serif;
   background: linear-gradient(180deg, #050b14, #101b2b);
   color: var(--text);
 }
@@ -144,6 +144,15 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.mode-readout, .muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.quiet-button {
+  background: transparent;
 }
 
 select {

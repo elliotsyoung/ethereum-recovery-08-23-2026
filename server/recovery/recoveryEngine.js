@@ -7,6 +7,7 @@ const { ensureDemoWallet, readKeystoreFile } = require('./walletVerifier');
 class RecoveryEngine {
   constructor() {
     this.worker = null;
+    this.foundCandidate = null;
     this.state = 'idle';
     this.mode = 'DEMO';
     this.status = {
@@ -26,6 +27,12 @@ class RecoveryEngine {
   async start({ mode = 'DEMO', config = getDefaultPatternConfig(), walletPath = null, checkpointPath = path.resolve(__dirname, '../../data/checkpoint.json') } = {}) {
     const normalizedMode = String(mode || 'DEMO').toUpperCase();
     const prior = loadCheckpoint(checkpointPath);
+    if (this.worker && ['running', 'paused'].includes(this.state)) {
+      throw new Error('A recovery job is already active. Stop it before starting another.');
+    }
+    if (prior.state === 'found') {
+      throw new Error('A match is already recorded. Stop or clear the checkpoint before starting again.');
+    }
     const lastIndex = Number(prior.candidateIndex || 0);
     const startedAt = prior.startedAt || Date.now();
     const walletTarget = normalizedMode === 'REAL'
@@ -35,12 +42,16 @@ class RecoveryEngine {
     if (normalizedMode === 'REAL' && !walletTarget) {
       throw new Error('REAL mode requires a local keystore file path.');
     }
+    if (normalizedMode === 'REAL') {
+      readKeystoreFile(walletTarget);
+    }
 
     if (this.worker) {
       this.worker.terminate();
     }
 
     this.mode = normalizedMode;
+    this.foundCandidate = null;
     this.state = 'running';
     this.status = {
       ...this.status,
@@ -95,6 +106,7 @@ class RecoveryEngine {
       if (message.type === 'match') {
         this.state = 'found';
         this.status.state = 'found';
+        this.foundCandidate = message.candidate;
       }
       if (message.type === 'finished') {
         this.state = message.state || 'stopped';
@@ -153,6 +165,13 @@ class RecoveryEngine {
     snapshot.state = this.state;
     snapshot.mode = this.mode;
     return snapshot;
+  }
+
+  revealMatch() {
+    if (this.state !== 'found' || this.foundCandidate === null) {
+      return { ok: false, error: 'No recovered password is available.' };
+    }
+    return { ok: true, candidate: this.foundCandidate };
   }
 }
 

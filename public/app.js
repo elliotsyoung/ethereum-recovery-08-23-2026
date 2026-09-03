@@ -4,6 +4,7 @@ const state = {
 
 const els = {
   stateValue: document.getElementById('stateValue'),
+  modeValue: document.getElementById('modeValue'),
   totalGuessesValue: document.getElementById('totalGuessesValue'),
   guessesPerSecondValue: document.getElementById('guessesPerSecondValue'),
   guessesPerHourValue: document.getElementById('guessesPerHourValue'),
@@ -19,7 +20,8 @@ const els = {
   patternJson: document.getElementById('patternJson'),
   candidateEstimate: document.getElementById('candidateEstimate'),
   modeSelect: document.getElementById('modeSelect'),
-  chartCanvas: document.getElementById('chartCanvas')
+  chartCanvas: document.getElementById('chartCanvas'),
+  benchmarkSummary: document.getElementById('benchmarkSummary')
 };
 
 function formatDuration(ms) {
@@ -99,6 +101,7 @@ function updateStatus(data) {
   const percent = Number(data.completionPercent || 0);
   const elapsed = Number(data.elapsedMs || 0);
   els.stateValue.textContent = data.state || 'idle';
+  els.modeValue.textContent = data.mode || 'DEMO';
   els.totalGuessesValue.textContent = formatNumber(data.totalGuesses);
   els.guessesPerSecondValue.textContent = Number(data.guessesPerSecond || 0).toFixed(2);
   els.guessesPerHourValue.textContent = formatNumber(Number(data.guessesPerHour || 0).toFixed(0));
@@ -111,6 +114,9 @@ function updateStatus(data) {
   els.remainingValue.textContent = formatDuration(Number((data.estimatedTimeRemaining || 0) * 1000));
   els.checkpointValue.textContent = data.lastCheckpointAt ? new Date(data.lastCheckpointAt).toLocaleTimeString() : 'n/a';
   els.matchesValue.textContent = formatNumber(data.matchesFound || 0);
+  if (data.benchmark) {
+    els.benchmarkSummary.textContent = `Measured ${Number(data.benchmark.guessesPerSecond || 0).toFixed(2)} guesses/sec; ${formatDuration(Number(data.benchmark.elapsedMs || 0))} for ${formatNumber(data.benchmark.iterations)} checks.`;
+  }
 
   if (Number(data.totalGuesses || 0) > 0 && state.samples[state.samples.length - 1] !== Number(data.totalGuesses)) {
     state.samples.push(Number(data.totalGuesses));
@@ -169,6 +175,15 @@ async function benchmark() {
   await refreshStatus();
 }
 
+async function revealMatch() {
+  const response = await fetchJson('/api/recovery/reveal-match', { method: 'POST' });
+  if (!response.ok) {
+    alert(response.error || 'No recovered password is available.');
+    return;
+  }
+  alert(`Recovered password: ${response.candidate}`);
+}
+
 document.getElementById('startBtn').addEventListener('click', startRecovery);
 document.getElementById('pauseBtn').addEventListener('click', async () => {
   await fetchJson('/api/recovery/pause', { method: 'POST' });
@@ -184,6 +199,7 @@ document.getElementById('stopBtn').addEventListener('click', async () => {
 });
 document.getElementById('savePatternsBtn').addEventListener('click', savePatterns);
 document.getElementById('benchmarkBtn').addEventListener('click', benchmark);
+document.getElementById('revealBtn').addEventListener('click', revealMatch);
 
 loadPatterns();
 refreshStatus();

@@ -13,6 +13,7 @@
           <h1>Wallet Recovery Dashboard</h1>
         </div>
         <div class="mode-wrap">
+          <span class="mode-readout">Local mode: <strong id="modeValue">DEMO</strong></span>
           <label for="modeSelect">Mode</label>
           <select id="modeSelect">
             <option value="DEMO">DEMO</option>
@@ -49,9 +50,11 @@
             <button id="resumeBtn">Resume</button>
             <button id="stopBtn">Stop</button>
             <button id="benchmarkBtn">Benchmark</button>
+            <button id="revealBtn" class="quiet-button">Reveal found password</button>
           </div>
 
           <canvas id="chartCanvas" width="700" height="180"></canvas>
+          <p id="benchmarkSummary" class="muted">No benchmark recorded.</p>
         </section>
 
         <section class="panel pattern-panel">
@@ -61,6 +64,7 @@
             <button id="savePatternsBtn">Apply Patterns</button>
             <span id="candidateEstimate">Estimated candidates: 0</span>
           </div>
+          <p class="muted">Patterns are stored locally in data/patterns.json. Changes apply to the next run.</p>
         </section>
       </main>
     </div>

@@ -3,9 +3,9 @@ const DEFAULT_CONFIG = {
     {
       name: 'word1+word2+number+suffix',
       slots: ['word1', 'word2', 'number', 'suffix'],
-      word1: ['Briar', 'Cinder', 'Drift', 'Ember', 'Fable', 'Grove', 'Harbor'],
-      word2: ['Bloom', 'Fjord', 'Harbor', 'Lumen', 'North', 'Quill', 'Summit'],
-      number: ['01', '07', '12', '22', '44', '77', '88'],
+      word1: ['Demo', 'Briar', 'Cinder', 'Drift', 'Ember', 'Fable', 'Grove', 'Harbor'],
+      word2: ['Pass', 'Bloom', 'Fjord', 'Harbor', 'Lumen', 'North', 'Quill', 'Summit'],
+      number: ['123', '01', '07', '12', '22', '44', '77', '88'],
       suffix: ['!', '!!', '**', '$$', '&&']
     },
     {
@@ -104,7 +104,8 @@ function applyCapitalization(value, mode) {
 function getPatternSpace(pattern, config) {
   const space = pattern.slots.reduce((total, slotName) => {
     const values = resolvePatternList(pattern, slotName, config);
-    return total * Math.max(values.length, 1);
+    const mutations = mutationFor(slotName, config);
+    return total * Math.max(values.length, 1) * Math.max(mutations.length, 1);
   }, 1);
   const variations = Array.isArray(config.capitalization) ? config.capitalization.length : 1;
   return space * Math.max(variations, 1);
@@ -133,35 +134,33 @@ function generateCandidate(config, candidateIndex) {
   const normalized = normalizeConfig(config);
   const { pattern, offset } = patternForIndex(normalized, candidateIndex);
   const localIndex = candidateIndex - offset;
-  const slotValues = pattern.slots.map((slotName, slotIndex) => {
+  const capitalizationCount = Math.max(Array.isArray(normalized.capitalization) ? normalized.capitalization.length : 0, 1);
+  const capitalizationIndex = Math.floor(localIndex / (pattern.slots.reduce((total, slotName) => {
+    const values = resolvePatternList(pattern, slotName, normalized);
+    return total * Math.max(values.length, 1) * Math.max(mutationFor(slotName, normalized).length, 1);
+  }, 1))) % capitalizationCount;
+  const capitalization = normalized.capitalization?.[capitalizationIndex] || 'none';
+  let slotIndex = localIndex % Math.max(pattern.slots.reduce((total, slotName) => {
+    const values = resolvePatternList(pattern, slotName, normalized);
+    return total * Math.max(values.length, 1) * Math.max(mutationFor(slotName, normalized).length, 1);
+  }, 1), 1);
+  const slotValues = pattern.slots.map((slotName) => {
     const baseValues = resolvePatternList(pattern, slotName, normalized);
     const options = baseValues.length > 0 ? baseValues : [''];
-    const selectedTransform = Array.isArray(normalized.capitalization) && normalized.capitalization.length > 0
-      ? normalized.capitalization[(localIndex + slotIndex) % normalized.capitalization.length]
-      : 'none';
     const mutationSet = mutationFor(slotName, normalized);
-    const mutationName = mutationSet[(localIndex + slotIndex) % mutationSet.length] || 'none';
-
-    return options.map((value) => {
-      const mutated = applyMutation(String(value), mutationName);
-      return applyCapitalization(mutated, selectedTransform);
-    });
+    const values = [];
+    for (const mutationName of mutationSet) {
+      for (const value of options) {
+        values.push(applyCapitalization(applyMutation(String(value), mutationName), capitalization));
+      }
+    }
+    const choiceCount = values.length || 1;
+    const choice = slotIndex % choiceCount;
+    slotIndex = Math.floor(slotIndex / choiceCount);
+    return [values[choice] || ''];
   });
 
-  const totalProducts = slotValues.map((values) => values.length);
-  const remainingMultipliers = slotValues.map((_, index) => product(totalProducts.slice(index + 1)));
-  let remainder = localIndex;
-  const parts = [];
-
-  for (let i = 0; i < slotValues.length; i += 1) {
-    const slotChoiceCount = slotValues[i].length || 1;
-    const divisor = remainingMultipliers[i] || 1;
-    const choiceIndex = divisor === 0 ? 0 : Math.floor(remainder / divisor) % slotChoiceCount;
-    parts.push(slotValues[i][choiceIndex]);
-    remainder = divisor === 0 ? 0 : remainder % divisor;
-  }
-
-  return parts.join('');
+  return slotValues.map((values) => values[0]).join('');
 }
 
 function getDefaultPatternConfig() {

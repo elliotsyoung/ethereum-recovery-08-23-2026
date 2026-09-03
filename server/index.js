@@ -47,13 +47,14 @@ app.get('/api/status', (req, res) => {
   const total = Math.max(candidateSpace, 1);
   const percentComplete = status.candidateIndex && total > 0 ? (status.candidateIndex / total) * 100 : 0;
   const benchmarkStats = status.benchmark || null;
+  const liveGuessesPerSecond = status.elapsedMs > 0 ? status.totalAttempted / (status.elapsedMs / 1000) : 0;
 
   res.json({
     mode: status.mode || 'DEMO',
     state: status.state || 'idle',
     totalGuesses: Number(status.totalAttempted || checkpoint.totalAttempted || 0),
-    guessesPerSecond: benchmarkStats ? benchmarkStats.guessesPerSecond : 0,
-    guessesPerHour: benchmarkStats ? benchmarkStats.guessesPerHour : 0,
+    guessesPerSecond: benchmarkStats ? benchmarkStats.guessesPerSecond : liveGuessesPerSecond,
+    guessesPerHour: benchmarkStats ? benchmarkStats.guessesPerHour : liveGuessesPerSecond * 3600,
     elapsedMs: Number(status.elapsedMs || checkpoint.elapsedMs || 0),
     candidateIndex: Number(status.candidateIndex || checkpoint.candidateIndex || 0),
     currentPattern: status.currentPattern || checkpoint.currentPattern || 'n/a',
@@ -103,6 +104,10 @@ app.post('/api/recovery/stop', (req, res) => {
   res.json(result);
 });
 
+app.post('/api/recovery/reveal-match', (req, res) => {
+  res.json(recoveryEngine.revealMatch());
+});
+
 app.get('/api/patterns', (req, res) => {
   const config = readPatterns();
   const total = calculateCandidateSpace(config);
@@ -126,7 +131,8 @@ app.put('/api/patterns', (req, res) => {
 
 app.post('/api/benchmark', async (req, res) => {
   try {
-    const result = await runBenchmark({ config: readPatterns() });
+    const iterations = Math.min(Math.max(Number(req.body?.iterations || 20), 5), 100);
+    const result = await runBenchmark({ config: readPatterns(), iterations });
     recoveryEngine.status.benchmark = result;
     res.json({ ok: true, result });
   } catch (error) {

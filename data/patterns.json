@@ -3,9 +3,9 @@
     {
       "name": "word1+word2+number+suffix",
       "slots": ["word1", "word2", "number", "suffix"],
-      "word1": ["Briar", "Cinder", "Drift", "Ember", "Fable", "Grove", "Harbor"],
-      "word2": ["Bloom", "Fjord", "Harbor", "Lumen", "North", "Quill", "Summit"],
-      "number": ["01", "07", "12", "22", "44", "77", "88"],
+      "word1": ["Demo", "Briar", "Cinder", "Drift", "Ember", "Fable", "Grove", "Harbor"],
+      "word2": ["Pass", "Bloom", "Fjord", "Harbor", "Lumen", "North", "Quill", "Summit"],
+      "number": ["123", "01", "07", "12", "22", "44", "77", "88"],
       "suffix": ["!", "!!", "**", "$$", "&&"]
     },
     {

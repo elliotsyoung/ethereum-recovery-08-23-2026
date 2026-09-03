@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { parentPort, workerData } = require('node:worker_threads');
-const { generateCandidate, patternForIndex } = require('./candidateGenerator');
+const { calculateCandidateSpace, generateCandidate, patternForIndex } = require('./candidateGenerator');
 const { verifyCandidate } = require('./walletVerifier');
 const { saveCheckpoint } = require('./checkpoint');
 
@@ -15,7 +15,24 @@ let totalAttempted = Number(workerData.totalAttempted || 0);
 let matchesFound = Number(workerData.matchesFound || 0);
 const startedAt = Number(workerData.startedAt || Date.now());
 const checkpointInterval = Number(workerData.checkpointInterval || 250);
+const candidateSpace = calculateCandidateSpace(config);
 let stopRequested = false;
+
+function checkpoint(stateOverride = state) {
+  const currentPattern = patternForIndex(config, Math.max(candidateIndex - 1, 0)).pattern.name;
+  const saved = {
+    candidateIndex,
+    totalAttempted,
+    startedAt,
+    lastCheckpointAt: Date.now(),
+    elapsedMs: Date.now() - startedAt,
+    currentPattern,
+    matchesFound,
+    state: stateOverride
+  };
+  saveCheckpoint(checkpointPath, saved);
+  return saved;
+}
 
 function updateStatus(message) {
   const status = {
@@ -39,6 +56,7 @@ parentPort.on('message', (message) => {
   if (message.type === 'control') {
     if (message.action === 'pause') {
       state = 'paused';
+      checkpoint('paused');
     }
     if (message.action === 'resume') {
       state = 'running';
@@ -46,6 +64,7 @@ parentPort.on('message', (message) => {
     if (message.action === 'stop') {
       state = 'stopped';
       stopRequested = true;
+      checkpoint('stopped');
     }
   }
 });
@@ -61,7 +80,7 @@ parentPort.on('message', (message) => {
     }
 
     let batch = 0;
-    while (state === 'running' && !stopRequested && batch < 2000) {
+    while (state === 'running' && !stopRequested && batch < 2000 && candidateIndex < candidateSpace) {
       const currentPattern = patternForIndex(config, candidateIndex).pattern.name;
       const candidate = generateCandidate(config, candidateIndex);
       const found = await verifyCandidate(keystore, candidate);
@@ -71,6 +90,7 @@ parentPort.on('message', (message) => {
         const message = {
           type: 'match',
           candidateIndex,
+          candidate,
           currentPattern,
           totalAttempted,
           matchesFound,
@@ -97,19 +117,16 @@ parentPort.on('message', (message) => {
       batch += 1;
 
       if (totalAttempted % checkpointInterval === 0) {
-        const checkpoint = {
-          candidateIndex,
-          totalAttempted,
-          startedAt,
-          lastCheckpointAt: Date.now(),
-          elapsedMs: Date.now() - startedAt,
-          currentPattern,
-          matchesFound,
-          state: 'running'
-        };
-        saveCheckpoint(checkpointPath, checkpoint);
-        parentPort.postMessage({ type: 'status', ...checkpoint });
+        const saved = checkpoint('running');
+        saved.currentPattern = currentPattern;
+        parentPort.postMessage({ type: 'status', ...saved });
       }
+    }
+
+    if (candidateIndex >= candidateSpace && !stopRequested) {
+      state = 'stopped';
+      checkpoint('stopped');
+      break;
     }
 
     if (!stopRequested) {
