@@ -4,6 +4,8 @@ coverage/
 .env.*
 wallet/*
 !wallet/.gitkeep
+data/patterns.json
 data/checkpoint.json
 recovered-password*
 private-key*
+*.tmp

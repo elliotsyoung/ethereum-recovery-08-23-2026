@@ -1,206 +1,373 @@
-const state = {
-  samples: []
+'use strict';
+
+const POLL_INTERVAL_MS = 1500;
+const BACKGROUND_POLL_INTERVAL_MS = 5000;
+
+const appState = {
+  sessionToken: null,
+  status: null,
+  pollTimer: null,
+  polling: false,
+  statusRequestFailed: false,
+  action: null
 };
 
 const els = {
+  notice: document.getElementById('notice'),
+  errorBanner: document.getElementById('errorBanner'),
+  readinessBadge: document.getElementById('readinessBadge'),
   stateValue: document.getElementById('stateValue'),
   modeValue: document.getElementById('modeValue'),
-  totalGuessesValue: document.getElementById('totalGuessesValue'),
-  guessesPerSecondValue: document.getElementById('guessesPerSecondValue'),
-  guessesPerHourValue: document.getElementById('guessesPerHourValue'),
-  elapsedValue: document.getElementById('elapsedValue'),
-  candidateIndexValue: document.getElementById('candidateIndexValue'),
-  currentPatternValue: document.getElementById('currentPatternValue'),
-  candidateSpaceValue: document.getElementById('candidateSpaceValue'),
+  jobIdValue: document.getElementById('jobIdValue'),
+  readyValue: document.getElementById('readyValue'),
   completeValue: document.getElementById('completeValue'),
-  remainingValue: document.getElementById('remainingValue'),
-  checkpointValue: document.getElementById('checkpointValue'),
-  matchesValue: document.getElementById('matchesValue'),
+  progressTrack: document.getElementById('progressTrack'),
   progressBar: document.getElementById('progressBar'),
-  patternJson: document.getElementById('patternJson'),
-  candidateEstimate: document.getElementById('candidateEstimate'),
-  modeSelect: document.getElementById('modeSelect'),
-  chartCanvas: document.getElementById('chartCanvas'),
-  benchmarkSummary: document.getElementById('benchmarkSummary')
+  verifiedValue: document.getElementById('verifiedValue'),
+  uniqueTotalValue: document.getElementById('uniqueTotalValue'),
+  rawCountValue: document.getElementById('rawCountValue'),
+  uniqueCountValue: document.getElementById('uniqueCountValue'),
+  duplicatesValue: document.getElementById('duplicatesValue'),
+  nextIndexValue: document.getElementById('nextIndexValue'),
+  workersValue: document.getElementById('workersValue'),
+  rateValue: document.getElementById('rateValue'),
+  hourlyRateValue: document.getElementById('hourlyRateValue'),
+  elapsedValue: document.getElementById('elapsedValue'),
+  etaValue: document.getElementById('etaValue'),
+  checkpointValue: document.getElementById('checkpointValue'),
+  matchValue: document.getElementById('matchValue'),
+  errorValue: document.getElementById('errorValue'),
+  benchmarkSummary: document.getElementById('benchmarkSummary'),
+  controls: document.getElementById('controls'),
+  startBtn: document.getElementById('startBtn'),
+  pauseBtn: document.getElementById('pauseBtn'),
+  resumeBtn: document.getElementById('resumeBtn'),
+  stopBtn: document.getElementById('stopBtn'),
+  benchmarkBtn: document.getElementById('benchmarkBtn')
 };
 
-function formatDuration(ms) {
-  if (!ms || ms < 1000) return `${Number(ms || 0).toFixed(0)} ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
-}
+const buttons = {
+  start: els.startBtn,
+  pause: els.pauseBtn,
+  resume: els.resumeBtn,
+  stop: els.stopBtn,
+  benchmark: els.benchmarkBtn
+};
 
-function formatNumber(value) {
-  return Number(value || 0).toLocaleString();
-}
+const allowedControls = {
+  ready: ['start', 'benchmark'],
+  running: ['pause', 'stop'],
+  paused: ['resume', 'stop'],
+  interrupted: ['resume', 'stop', 'benchmark'],
+  stopped: ['start', 'benchmark'],
+  exhausted: [],
+  found: [],
+  failed: []
+};
 
-function renderChart() {
-  const canvas = els.chartCanvas;
-  const context = canvas.getContext('2d');
-  const width = canvas.width;
-  const height = canvas.height;
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = '#09111d';
-  context.fillRect(0, 0, width, height);
-
-  if (!state.samples.length) {
-    context.fillStyle = '#9db4d5';
-    context.font = '12px sans-serif';
-    context.fillText('No activity yet', 14, 24);
-    return;
+class ApiError extends Error {
+  constructor(code, status) {
+    super(code);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
   }
+}
 
-  const maxValue = Math.max(...state.samples, 1);
-  const minValue = 0;
-  context.strokeStyle = '#2d4366';
-  context.beginPath();
-  context.moveTo(18, 12);
-  context.lineTo(18, height - 18);
-  context.lineTo(width - 14, height - 18);
-  context.stroke();
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
 
-  context.beginPath();
-  const mid = height - 18;
-  state.samples.forEach((sample, index) => {
-    const x = 18 + (index / Math.max(state.samples.length - 1, 1)) * (width - 34);
-    const y = mid - ((sample - minValue) / Math.max(maxValue - minValue, 1)) * (height - 42);
-    if (index === 0) {
-      context.moveTo(x, y);
-    } else {
-      context.lineTo(x, y);
+function formatNumber(value, maximumFractionDigits = 0) {
+  return finiteNumber(value).toLocaleString(undefined, { maximumFractionDigits });
+}
+
+function formatRate(value) {
+  const rate = Math.max(0, finiteNumber(value));
+  const digits = rate > 0 && rate < 10 ? 2 : rate < 100 ? 1 : 0;
+  return formatNumber(rate, digits);
+}
+
+function formatDurationFromMilliseconds(value) {
+  const totalSeconds = Math.max(0, Math.floor(finiteNumber(value) / 1000));
+  return formatDurationFromSeconds(totalSeconds);
+}
+
+function formatDurationFromSeconds(value) {
+  let remaining = Math.max(0, Math.floor(finiteNumber(value)));
+  const days = Math.floor(remaining / 86400);
+  remaining %= 86400;
+  const hours = Math.floor(remaining / 3600);
+  remaining %= 3600;
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function cleanErrorCode(value) {
+  return typeof value === 'string' && /^[a-z0-9_-]{1,64}$/i.test(value)
+    ? value.toUpperCase()
+    : null;
+}
+
+function friendlyRequestError(error, action = 'request') {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return 'The local session expired. Refresh the page and try again.';
     }
-  });
-  context.strokeStyle = '#5cc8ff';
-  context.lineWidth = 2;
-  context.stroke();
-}
-
-async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
-  return response.json();
-}
-
-async function loadPatterns() {
-  const data = await fetchJson('/api/patterns');
-  els.patternJson.value = JSON.stringify({
-    patterns: data.patterns,
-    capitalization: data.capitalization,
-    mutations: data.mutations
-  }, null, 2);
-  updateCandidateEstimate(data.candidateSpace);
-}
-
-function updateCandidateEstimate(space) {
-  els.candidateEstimate.textContent = `Estimated candidates: ${Number(space || 0).toLocaleString()}`;
-}
-
-function updateStatus(data) {
-  const total = Number(data.totalCandidateSpace || 1);
-  const percent = Number(data.completionPercent || 0);
-  const elapsed = Number(data.elapsedMs || 0);
-  els.stateValue.textContent = data.state || 'idle';
-  els.modeValue.textContent = data.mode || 'DEMO';
-  els.totalGuessesValue.textContent = formatNumber(data.totalGuesses);
-  els.guessesPerSecondValue.textContent = Number(data.guessesPerSecond || 0).toFixed(2);
-  els.guessesPerHourValue.textContent = formatNumber(Number(data.guessesPerHour || 0).toFixed(0));
-  els.elapsedValue.textContent = formatDuration(elapsed);
-  els.candidateIndexValue.textContent = formatNumber(data.candidateIndex || 0);
-  els.currentPatternValue.textContent = data.currentPattern || 'n/a';
-  els.candidateSpaceValue.textContent = formatNumber(total);
-  els.completeValue.textContent = `${percent.toFixed(2)}%`;
-  els.progressBar.style.width = `${Math.min(percent, 100)}%`;
-  els.remainingValue.textContent = formatDuration(Number((data.estimatedTimeRemaining || 0) * 1000));
-  els.checkpointValue.textContent = data.lastCheckpointAt ? new Date(data.lastCheckpointAt).toLocaleTimeString() : 'n/a';
-  els.matchesValue.textContent = formatNumber(data.matchesFound || 0);
-  if (data.benchmark) {
-    els.benchmarkSummary.textContent = `Measured ${Number(data.benchmark.guessesPerSecond || 0).toFixed(2)} guesses/sec; ${formatDuration(Number(data.benchmark.elapsedMs || 0))} for ${formatNumber(data.benchmark.iterations)} checks.`;
-  }
-
-  if (Number(data.totalGuesses || 0) > 0 && state.samples[state.samples.length - 1] !== Number(data.totalGuesses)) {
-    state.samples.push(Number(data.totalGuesses));
-    if (state.samples.length > 40) {
-      state.samples.shift();
+    if (error.status === 409) {
+      return `That ${action} is not available in the current state.`;
     }
+    if (error.status === 429) {
+      return 'Another operation is already in progress.';
+    }
+    return `The ${action} failed${error.code ? ` (${error.code})` : ''}.`;
   }
-  renderChart();
+  return 'The local recovery service is unavailable. Status may be stale.';
 }
 
-async function refreshStatus() {
-  const data = await fetchJson('/api/status');
-  updateStatus(data);
-}
-
-async function startRecovery() {
-  const payload = {
-    mode: els.modeSelect.value
-  };
-  const result = await fetchJson('/api/recovery/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (result.ok === false) {
-    alert(result.error || 'Unable to start recovery.');
-    return;
-  }
-  await refreshStatus();
-}
-
-async function savePatterns() {
+async function requestJson(url, options = {}) {
+  let response;
   try {
-    const payload = JSON.parse(els.patternJson.value);
-    const result = await fetchJson('/api/patterns', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    response = await fetch(url, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...options
     });
-    updateCandidateEstimate(result.candidateSpace);
-    await refreshStatus();
-  } catch (error) {
-    alert('Pattern JSON is invalid.');
+  } catch (_error) {
+    throw new ApiError('NETWORK_ERROR', 0);
+  }
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    throw new ApiError('INVALID_RESPONSE', response.status);
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new ApiError('INVALID_RESPONSE', response.status);
+  }
+
+  if (!response.ok || payload.ok === false) {
+    throw new ApiError(cleanErrorCode(payload && payload.errorCode) || 'REQUEST_FAILED', response.status);
+  }
+
+  return payload;
+}
+
+function setNotice(message, isError = false) {
+  const element = isError ? els.errorBanner : els.notice;
+  const other = isError ? els.notice : els.errorBanner;
+  other.hidden = true;
+  other.textContent = '';
+  element.textContent = message;
+  element.hidden = false;
+}
+
+function clearRequestError() {
+  els.errorBanner.hidden = true;
+  els.errorBanner.textContent = '';
+}
+
+function stateLabel(value) {
+  const state = String(value || 'unknown').toLowerCase();
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function checkpointAge(value) {
+  if (value === null || value === undefined || value === '') return 'Not yet saved';
+  const timestamp = typeof value === 'number' ? value : Date.parse(value);
+  if (!Number.isFinite(timestamp)) return 'Unavailable';
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (ageSeconds < 5) return 'Just now';
+  return `${formatDurationFromSeconds(ageSeconds)} ago`;
+}
+
+function renderBenchmark(benchmark) {
+  if (!benchmark || typeof benchmark !== 'object') {
+    els.benchmarkSummary.textContent = 'No benchmark recorded.';
+    return;
+  }
+
+  if (benchmark.running === true || benchmark.state === 'running') {
+    els.benchmarkSummary.textContent = 'Benchmark in progress…';
+    return;
+  }
+
+  const workers = finiteNumber(
+    benchmark.selectedWorkerCount
+      ?? benchmark.selectedWorkers
+      ?? benchmark.workerCount
+      ?? benchmark.workers,
+    0
+  );
+  const rate = finiteNumber(benchmark.guessesPerSecond, 0);
+
+  if (workers > 0 && rate > 0) {
+    els.benchmarkSummary.textContent = `${formatNumber(workers)} worker${workers === 1 ? '' : 's'} selected at ${formatRate(rate)} checks/sec.`;
+  } else if (rate > 0) {
+    els.benchmarkSummary.textContent = `Measured ${formatRate(rate)} checks/sec.`;
+  } else {
+    els.benchmarkSummary.textContent = 'Benchmark completed; no rate was reported.';
   }
 }
 
-async function benchmark() {
-  const response = await fetchJson('/api/benchmark', {
-    method: 'POST'
+function renderControls() {
+  const currentState = String(appState.status?.state || '').toLowerCase();
+  const permitted = new Set(allowedControls[currentState] || []);
+  const hasSession = typeof appState.sessionToken === 'string';
+  const isReady = appState.status?.ready === true;
+
+  Object.entries(buttons).forEach(([name, button]) => {
+    let enabled = permitted.has(name) && hasSession && appState.action === null;
+    if (name === 'start') enabled = enabled && isReady;
+    button.disabled = !enabled;
+    button.setAttribute('aria-disabled', String(!enabled));
   });
-  if (!response.ok) {
-    alert(response.error || 'Benchmark failed');
-    return;
-  }
-  alert(`Benchmark complete: ${Number(response.result.guessesPerSecond || 0).toFixed(2)} guesses/sec`);
-  await refreshStatus();
+
+  els.controls.setAttribute('aria-busy', String(appState.action !== null));
 }
 
-async function revealMatch() {
-  const response = await fetchJson('/api/recovery/reveal-match', { method: 'POST' });
-  if (!response.ok) {
-    alert(response.error || 'No recovered password is available.');
-    return;
-  }
-  alert(`Recovered password: ${response.candidate}`);
+function renderStatus(status) {
+  appState.status = status;
+
+  const suppliedState = typeof status.state === 'string' ? status.state.toLowerCase() : '';
+  const state = Object.hasOwn(allowedControls, suppliedState) ? suppliedState : 'unknown';
+  const ready = status.ready === true;
+  const rawCount = Math.max(0, finiteNumber(status.rawCandidateCount));
+  const uniqueCount = Math.max(0, finiteNumber(status.uniqueCandidateCount));
+  const duplicates = Math.max(0, finiteNumber(status.duplicatesRemoved, rawCount - uniqueCount));
+  const verified = Math.max(0, finiteNumber(status.totalVerified));
+  const percent = Math.min(100, Math.max(0, finiteNumber(
+    status.completionPercent,
+    uniqueCount > 0 ? (verified / uniqueCount) * 100 : 0
+  )));
+  const errorCode = cleanErrorCode(status.errorCode);
+  const jobId = typeof status.jobId === 'string' && /^[a-f0-9]{64}$/i.test(status.jobId)
+    ? status.jobId
+    : 'Not configured';
+
+  els.stateValue.textContent = stateLabel(state);
+  els.stateValue.dataset.state = state;
+  els.modeValue.textContent = status.mode === 'REAL' || status.mode === 'DEMO' ? status.mode : '—';
+  els.readinessBadge.textContent = ready ? 'Ready' : 'Not ready';
+  els.readinessBadge.className = `badge ${ready ? 'badge-ready' : 'badge-muted'}`;
+  els.readyValue.textContent = ready ? 'Ready to run' : 'Configuration required';
+  els.jobIdValue.textContent = jobId;
+  els.jobIdValue.title = jobId;
+
+  els.completeValue.textContent = `${percent.toFixed(2)}%`;
+  els.progressBar.style.width = `${percent}%`;
+  els.progressTrack.setAttribute('aria-valuenow', percent.toFixed(2));
+  els.progressTrack.setAttribute('aria-valuetext', `${percent.toFixed(2)} percent complete`);
+  els.verifiedValue.textContent = formatNumber(verified);
+  els.uniqueTotalValue.textContent = formatNumber(uniqueCount);
+
+  els.rawCountValue.textContent = formatNumber(rawCount);
+  els.uniqueCountValue.textContent = formatNumber(uniqueCount);
+  els.duplicatesValue.textContent = formatNumber(duplicates);
+  els.nextIndexValue.textContent = formatNumber(status.nextCandidateIndex);
+  els.workersValue.textContent = formatNumber(status.activeWorkers);
+  els.rateValue.textContent = `${formatRate(status.guessesPerSecond)}/sec`;
+  els.hourlyRateValue.textContent = `${formatNumber(status.guessesPerHour)}/hour`;
+  els.elapsedValue.textContent = formatDurationFromMilliseconds(status.activeElapsedMs);
+  els.etaValue.textContent = status.estimatedSecondsRemaining === null || status.estimatedSecondsRemaining === undefined
+    ? 'Calculating…'
+    : formatDurationFromSeconds(status.estimatedSecondsRemaining);
+  els.checkpointValue.textContent = checkpointAge(status.lastCheckpointAt);
+  els.matchValue.textContent = status.matchFound === true ? 'Found — use terminal' : 'Not found';
+  els.matchValue.classList.toggle('success-text', status.matchFound === true);
+  els.errorValue.textContent = errorCode || 'None';
+  els.errorValue.classList.toggle('error-text', Boolean(errorCode));
+
+  renderBenchmark(status.benchmark);
+  renderControls();
 }
 
-document.getElementById('startBtn').addEventListener('click', startRecovery);
-document.getElementById('pauseBtn').addEventListener('click', async () => {
-  await fetchJson('/api/recovery/pause', { method: 'POST' });
-  await refreshStatus();
-});
-document.getElementById('resumeBtn').addEventListener('click', async () => {
-  await fetchJson('/api/recovery/resume', { method: 'POST' });
-  await refreshStatus();
-});
-document.getElementById('stopBtn').addEventListener('click', async () => {
-  await fetchJson('/api/recovery/stop', { method: 'POST' });
-  await refreshStatus();
-});
-document.getElementById('savePatternsBtn').addEventListener('click', savePatterns);
-document.getElementById('benchmarkBtn').addEventListener('click', benchmark);
-document.getElementById('revealBtn').addEventListener('click', revealMatch);
+async function loadSession() {
+  const payload = await requestJson('/api/session');
+  if (typeof payload.token !== 'string' || payload.token.length === 0) {
+    throw new ApiError('INVALID_SESSION', 0);
+  }
+  appState.sessionToken = payload.token;
+}
 
-loadPatterns();
-refreshStatus();
-setInterval(refreshStatus, 1500);
+async function refreshStatus({ announceErrors = true } = {}) {
+  if (appState.polling) return;
+  appState.polling = true;
+  try {
+    const status = await requestJson('/api/status');
+    renderStatus(status);
+    if (appState.statusRequestFailed) {
+      appState.statusRequestFailed = false;
+      clearRequestError();
+    }
+  } catch (error) {
+    if (announceErrors && appState.sessionToken !== null) {
+      appState.statusRequestFailed = true;
+      setNotice(friendlyRequestError(error, 'status request'), true);
+    }
+    renderControls();
+  } finally {
+    appState.polling = false;
+  }
+}
+
+function schedulePoll() {
+  window.clearTimeout(appState.pollTimer);
+  const delay = document.hidden ? BACKGROUND_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
+  appState.pollTimer = window.setTimeout(async () => {
+    await refreshStatus();
+    schedulePoll();
+  }, delay);
+}
+
+async function runAction(action) {
+  if (appState.action !== null || !appState.sessionToken) return;
+  appState.action = action;
+  appState.statusRequestFailed = false;
+  renderControls();
+
+  try {
+    await requestJson(`/api/${action === 'benchmark' ? 'benchmark' : `recovery/${action}`}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Recovery-Session': appState.sessionToken
+      },
+      body: '{}'
+    });
+    setNotice(action === 'benchmark' ? 'Benchmark completed.' : `${stateLabel(action)} request completed.`);
+    await refreshStatus({ announceErrors: false });
+  } catch (error) {
+    setNotice(friendlyRequestError(error, action), true);
+  } finally {
+    appState.action = null;
+    renderControls();
+  }
+}
+
+Object.entries(buttons).forEach(([action, button]) => {
+  button.addEventListener('click', () => runAction(action));
+});
+
+document.addEventListener('visibilitychange', schedulePoll);
+
+async function initialize() {
+  renderControls();
+  try {
+    await loadSession();
+  } catch (error) {
+    setNotice(friendlyRequestError(error, 'session request'), true);
+  }
+  await refreshStatus({ announceErrors: appState.sessionToken !== null });
+  schedulePoll();
+}
+
+initialize();

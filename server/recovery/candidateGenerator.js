@@ -1,4 +1,25 @@
+const SCHEMA_VERSION = 2;
+const GENERATOR_VERSION = 2;
+const MAX_RAW_CANDIDATES = 10_000_000;
+
+const CAPITALIZATION_MODES = new Set(['none', 'title', 'upper', 'lower']);
+const MUTATION_MODES = new Set(['none', 'double-last', 'drop-vowel']);
+const CONFIG_KEYS = new Set(['schemaVersion', 'patterns', 'capitalization', 'mutations']);
+const PATTERN_KEYS = new Set(['name', 'slots']);
+const RESERVED_SLOT_NAMES = new Set([
+  'name',
+  'slots',
+  'schemaVersion',
+  'patterns',
+  'capitalization',
+  'mutations',
+  '__proto__',
+  'constructor',
+  'prototype'
+]);
+
 const DEFAULT_CONFIG = {
+  schemaVersion: SCHEMA_VERSION,
   patterns: [
     {
       name: 'word1+word2+number+suffix',
@@ -33,47 +54,157 @@ const DEFAULT_CONFIG = {
   }
 };
 
+const planModelCache = new WeakMap();
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function normalizeConfig(config) {
-  const safeConfig = config && typeof config === 'object' ? config : {};
-  const patterns = Array.isArray(safeConfig.patterns) && safeConfig.patterns.length > 0
-    ? safeConfig.patterns
-    : DEFAULT_CONFIG.patterns;
-
-  return {
-    ...DEFAULT_CONFIG,
-    ...safeConfig,
-    patterns: patterns.map((pattern) => ({
-      ...pattern,
-      slots: Array.isArray(pattern.slots) && pattern.slots.length > 0 ? pattern.slots : ['word1', 'word2', 'number', 'suffix']
-    }))
-  };
+function isRecord(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
-function product(values) {
-  return values.reduce((total, next) => total * next, 1);
+function hasOwn(object, property) {
+  return Object.prototype.hasOwnProperty.call(object, property);
+}
+
+function assertRecord(value, location) {
+  if (!isRecord(value)) {
+    throw new TypeError(`${location} must be a plain object.`);
+  }
+}
+
+function assertNonEmptyString(value, location) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new TypeError(`${location} must be a non-empty string.`);
+  }
+}
+
+function assertStringArray(value, location, allowedValues = null) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new TypeError(`${location} must be a non-empty array of strings.`);
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    if (typeof value[index] !== 'string') {
+      throw new TypeError(`${location}[${index}] must be a string.`);
+    }
+    if (allowedValues && !allowedValues.has(value[index])) {
+      throw new TypeError(`${location}[${index}] has unsupported value "${value[index]}".`);
+    }
+  }
+}
+
+function validateConfig(config) {
+  assertRecord(config, 'config');
+
+  if (config.schemaVersion !== SCHEMA_VERSION) {
+    throw new TypeError(`config.schemaVersion must be ${SCHEMA_VERSION}.`);
+  }
+  if (!Array.isArray(config.patterns) || config.patterns.length === 0) {
+    throw new TypeError('config.patterns must be a non-empty array.');
+  }
+  assertStringArray(config.capitalization, 'config.capitalization', CAPITALIZATION_MODES);
+  assertRecord(config.mutations, 'config.mutations');
+
+  const usedSlots = new Set();
+
+  for (let patternIndex = 0; patternIndex < config.patterns.length; patternIndex += 1) {
+    const pattern = config.patterns[patternIndex];
+    const location = `config.patterns[${patternIndex}]`;
+    assertRecord(pattern, location);
+    assertNonEmptyString(pattern.name, `${location}.name`);
+    assertStringArray(pattern.slots, `${location}.slots`);
+
+    for (let slotIndex = 0; slotIndex < pattern.slots.length; slotIndex += 1) {
+      const slotName = pattern.slots[slotIndex];
+      assertNonEmptyString(slotName, `${location}.slots[${slotIndex}]`);
+      if (RESERVED_SLOT_NAMES.has(slotName)) {
+        throw new TypeError(`${location}.slots[${slotIndex}] uses reserved slot name "${slotName}".`);
+      }
+      usedSlots.add(slotName);
+    }
+  }
+
+  for (const key of Object.keys(config)) {
+    if (!CONFIG_KEYS.has(key) && !usedSlots.has(key)) {
+      throw new TypeError(`config contains unsupported property "${key}".`);
+    }
+  }
+
+  for (const slotName of usedSlots) {
+    if (hasOwn(config, slotName)) {
+      assertStringArray(config[slotName], `config.${slotName}`);
+    }
+  }
+
+  for (let patternIndex = 0; patternIndex < config.patterns.length; patternIndex += 1) {
+    const pattern = config.patterns[patternIndex];
+    const location = `config.patterns[${patternIndex}]`;
+    const patternSlots = new Set(pattern.slots);
+
+    for (const key of Object.keys(pattern)) {
+      if (!PATTERN_KEYS.has(key) && !patternSlots.has(key)) {
+        throw new TypeError(`${location} contains unsupported property "${key}".`);
+      }
+    }
+
+    for (const slotName of patternSlots) {
+      if (hasOwn(pattern, slotName)) {
+        assertStringArray(pattern[slotName], `${location}.${slotName}`);
+      } else if (!hasOwn(config, slotName)) {
+        throw new TypeError(`${location} has no values for slot "${slotName}".`);
+      }
+    }
+  }
+
+  for (const [slotName, mutationNames] of Object.entries(config.mutations)) {
+    if (!usedSlots.has(slotName)) {
+      throw new TypeError(`config.mutations contains unused slot "${slotName}".`);
+    }
+    assertStringArray(mutationNames, `config.mutations.${slotName}`, MUTATION_MODES);
+  }
+
+  return clone(config);
+}
+
+function normalizeConfig(config) {
+  return validateConfig(config);
+}
+
+function checkedMultiply(left, right, location) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0) {
+    throw new RangeError(`${location} requires non-negative safe integers.`);
+  }
+  if (right !== 0 && left > Math.floor(Number.MAX_SAFE_INTEGER / right)) {
+    throw new RangeError(`${location} exceeds the safe integer range.`);
+  }
+  return left * right;
+}
+
+function checkedAdd(left, right, location) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0) {
+    throw new RangeError(`${location} requires non-negative safe integers.`);
+  }
+  if (left > Number.MAX_SAFE_INTEGER - right) {
+    throw new RangeError(`${location} exceeds the safe integer range.`);
+  }
+  return left + right;
 }
 
 function resolvePatternList(pattern, slotName, config) {
-  if (Array.isArray(pattern[slotName])) {
-    return pattern[slotName];
-  }
-  if (Array.isArray(config[slotName])) {
-    return config[slotName];
-  }
-  return [];
+  return hasOwn(pattern, slotName) ? pattern[slotName] : config[slotName];
 }
 
 function mutationFor(slotName, config) {
-  const options = config.mutations && config.mutations[slotName];
-  return Array.isArray(options) && options.length > 0 ? options : ['none'];
+  return hasOwn(config.mutations, slotName) ? config.mutations[slotName] : ['none'];
 }
 
 function applyMutation(value, mutationName) {
-  if (!value || mutationName === 'none' || mutationName === undefined) {
+  if (!value || mutationName === 'none') {
     return value;
   }
   if (mutationName === 'double-last') {
@@ -82,11 +213,11 @@ function applyMutation(value, mutationName) {
   if (mutationName === 'drop-vowel') {
     return value.replace(/[aeiou]/gi, '');
   }
-  return value;
+  throw new TypeError(`Unsupported mutation "${mutationName}".`);
 }
 
 function applyCapitalization(value, mode) {
-  if (!value) {
+  if (!value || mode === 'none') {
     return value;
   }
   switch (mode) {
@@ -97,70 +228,187 @@ function applyCapitalization(value, mode) {
     case 'lower':
       return value.toLowerCase();
     default:
-      return value;
+      throw new TypeError(`Unsupported capitalization mode "${mode}".`);
   }
 }
 
-function getPatternSpace(pattern, config) {
-  const space = pattern.slots.reduce((total, slotName) => {
-    const values = resolvePatternList(pattern, slotName, config);
-    const mutations = mutationFor(slotName, config);
-    return total * Math.max(values.length, 1) * Math.max(mutations.length, 1);
-  }, 1);
-  const variations = Array.isArray(config.capitalization) ? config.capitalization.length : 1;
-  return space * Math.max(variations, 1);
+function buildCandidateModel(config) {
+  const normalized = normalizeConfig(config);
+  let rawCount = 0;
+  const patterns = normalized.patterns.map((pattern, patternIndex) => {
+    let slotSpace = 1;
+    const slots = pattern.slots.map((slotName) => {
+      const values = resolvePatternList(pattern, slotName, normalized);
+      const mutations = mutationFor(slotName, normalized);
+      const choiceCount = checkedMultiply(
+        values.length,
+        mutations.length,
+        `Candidate choices for pattern ${patternIndex}, slot "${slotName}"`
+      );
+      slotSpace = checkedMultiply(
+        slotSpace,
+        choiceCount,
+        `Candidate space for pattern ${patternIndex}`
+      );
+      return { slotName, values, mutations, choiceCount };
+    });
+    const size = checkedMultiply(
+      slotSpace,
+      normalized.capitalization.length,
+      `Candidate space for pattern ${patternIndex}`
+    );
+    const offset = rawCount;
+    rawCount = checkedAdd(rawCount, size, 'Total candidate space');
+    return { pattern, slots, slotSpace, offset, size };
+  });
+
+  if (rawCount > MAX_RAW_CANDIDATES) {
+    throw new RangeError(
+      `Raw candidate space ${rawCount} exceeds the maximum of ${MAX_RAW_CANDIDATES}. Split it into smaller jobs.`
+    );
+  }
+
+  return { config: normalized, patterns, rawCount };
+}
+
+function assertIndex(index, total, name) {
+  if (typeof index !== 'number') {
+    throw new TypeError(`${name} must be a number.`);
+  }
+  if (!Number.isSafeInteger(index)) {
+    throw new RangeError(`${name} must be a safe integer.`);
+  }
+  if (index < 0 || index >= total) {
+    throw new RangeError(`${name} must be between 0 and ${total - 1}.`);
+  }
+}
+
+function patternEntryForRawIndex(model, candidateIndex) {
+  assertIndex(candidateIndex, model.rawCount, 'candidateIndex');
+  for (const entry of model.patterns) {
+    if (candidateIndex >= entry.offset && candidateIndex < entry.offset + entry.size) {
+      return entry;
+    }
+  }
+  throw new RangeError('candidateIndex is outside the candidate space.');
+}
+
+function generateCandidateFromModel(model, candidateIndex) {
+  const entry = patternEntryForRawIndex(model, candidateIndex);
+  const localIndex = candidateIndex - entry.offset;
+  const capitalizationIndex = Math.floor(localIndex / entry.slotSpace);
+  const capitalization = model.config.capitalization[capitalizationIndex];
+  let slotIndex = localIndex % entry.slotSpace;
+  let candidate = '';
+
+  for (const slot of entry.slots) {
+    const choiceIndex = slotIndex % slot.choiceCount;
+    slotIndex = Math.floor(slotIndex / slot.choiceCount);
+    const mutationIndex = Math.floor(choiceIndex / slot.values.length);
+    const valueIndex = choiceIndex % slot.values.length;
+    candidate += applyCapitalization(
+      applyMutation(slot.values[valueIndex], slot.mutations[mutationIndex]),
+      capitalization
+    );
+  }
+
+  return candidate;
 }
 
 function calculateCandidateSpace(config) {
-  const normalized = normalizeConfig(config);
-  return normalized.patterns.reduce((total, pattern) => total + getPatternSpace(pattern, normalized), 0);
+  return buildCandidateModel(config).rawCount;
 }
 
 function patternForIndex(config, candidateIndex) {
-  const normalized = normalizeConfig(config);
-  let offset = 0;
-  for (const pattern of normalized.patterns) {
-    const size = getPatternSpace(pattern, normalized);
-    if (candidateIndex >= offset && candidateIndex < offset + size) {
-      return { pattern, offset, total: size };
-    }
-    offset += size;
-  }
-  const lastPattern = normalized.patterns[normalized.patterns.length - 1];
-  return { pattern: lastPattern, offset: Math.max(offset - getPatternSpace(lastPattern, normalized), 0), total: getPatternSpace(lastPattern, normalized) };
+  const entry = patternEntryForRawIndex(buildCandidateModel(config), candidateIndex);
+  return { pattern: entry.pattern, offset: entry.offset, total: entry.size };
 }
 
 function generateCandidate(config, candidateIndex) {
-  const normalized = normalizeConfig(config);
-  const { pattern, offset } = patternForIndex(normalized, candidateIndex);
-  const localIndex = candidateIndex - offset;
-  const capitalizationCount = Math.max(Array.isArray(normalized.capitalization) ? normalized.capitalization.length : 0, 1);
-  const capitalizationIndex = Math.floor(localIndex / (pattern.slots.reduce((total, slotName) => {
-    const values = resolvePatternList(pattern, slotName, normalized);
-    return total * Math.max(values.length, 1) * Math.max(mutationFor(slotName, normalized).length, 1);
-  }, 1))) % capitalizationCount;
-  const capitalization = normalized.capitalization?.[capitalizationIndex] || 'none';
-  let slotIndex = localIndex % Math.max(pattern.slots.reduce((total, slotName) => {
-    const values = resolvePatternList(pattern, slotName, normalized);
-    return total * Math.max(values.length, 1) * Math.max(mutationFor(slotName, normalized).length, 1);
-  }, 1), 1);
-  const slotValues = pattern.slots.map((slotName) => {
-    const baseValues = resolvePatternList(pattern, slotName, normalized);
-    const options = baseValues.length > 0 ? baseValues : [''];
-    const mutationSet = mutationFor(slotName, normalized);
-    const values = [];
-    for (const mutationName of mutationSet) {
-      for (const value of options) {
-        values.push(applyCapitalization(applyMutation(String(value), mutationName), capitalization));
-      }
-    }
-    const choiceCount = values.length || 1;
-    const choice = slotIndex % choiceCount;
-    slotIndex = Math.floor(slotIndex / choiceCount);
-    return [values[choice] || ''];
-  });
+  return generateCandidateFromModel(buildCandidateModel(config), candidateIndex);
+}
 
-  return slotValues.map((values) => values[0]).join('');
+function createCandidateResolver(config) {
+  const model = buildCandidateModel(config);
+  return (candidateIndex) => generateCandidateFromModel(model, candidateIndex);
+}
+
+function compileCandidatePlan(config) {
+  const model = buildCandidateModel(config);
+  const firstRawIndices = new Uint32Array(model.rawCount);
+  const seen = new Set();
+  let uniqueCount = 0;
+
+  for (let rawIndex = 0; rawIndex < model.rawCount; rawIndex += 1) {
+    const candidate = generateCandidateFromModel(model, rawIndex);
+    const normalizedCandidate = candidate.normalize('NFKC');
+    if (!seen.has(normalizedCandidate)) {
+      seen.add(normalizedCandidate);
+      firstRawIndices[uniqueCount] = rawIndex;
+      uniqueCount += 1;
+    }
+  }
+
+  const plan = {
+    schemaVersion: SCHEMA_VERSION,
+    generatorVersion: GENERATOR_VERSION,
+    rawCount: model.rawCount,
+    uniqueCount,
+    duplicateCount: model.rawCount - uniqueCount,
+    rawIndices: firstRawIndices.slice(0, uniqueCount)
+  };
+  planModelCache.set(plan, { sourceConfig: config, model });
+  return plan;
+}
+
+function assertCandidatePlan(plan, expectedRawCount) {
+  assertRecord(plan, 'plan');
+  if (plan.schemaVersion !== SCHEMA_VERSION) {
+    throw new RangeError(`plan.schemaVersion must be ${SCHEMA_VERSION}.`);
+  }
+  if (plan.generatorVersion !== GENERATOR_VERSION) {
+    throw new RangeError(`plan.generatorVersion must be ${GENERATOR_VERSION}.`);
+  }
+  if (!(plan.rawIndices instanceof Uint32Array)) {
+    throw new TypeError('plan.rawIndices must be a Uint32Array.');
+  }
+  for (const [name, value] of [
+    ['plan.rawCount', plan.rawCount],
+    ['plan.uniqueCount', plan.uniqueCount],
+    ['plan.duplicateCount', plan.duplicateCount]
+  ]) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new RangeError(`${name} must be a non-negative safe integer.`);
+    }
+  }
+  if (plan.rawCount !== expectedRawCount) {
+    throw new RangeError('plan.rawCount does not match the supplied configuration.');
+  }
+  if (plan.uniqueCount !== plan.rawIndices.length) {
+    throw new RangeError('plan.uniqueCount does not match plan.rawIndices.length.');
+  }
+  if (plan.duplicateCount !== plan.rawCount - plan.uniqueCount) {
+    throw new RangeError('plan.duplicateCount is inconsistent with the plan counts.');
+  }
+}
+
+function candidateForUniqueIndex(config, plan, uniqueIndex) {
+  let cached = plan && typeof plan === 'object' ? planModelCache.get(plan) : null;
+  if (!cached || cached.sourceConfig !== config) {
+    const model = buildCandidateModel(config);
+    assertCandidatePlan(plan, model.rawCount);
+    cached = { sourceConfig: config, model };
+    planModelCache.set(plan, cached);
+  } else {
+    assertCandidatePlan(plan, cached.model.rawCount);
+  }
+
+  assertIndex(uniqueIndex, plan.uniqueCount, 'uniqueIndex');
+  const rawIndex = plan.rawIndices[uniqueIndex];
+  if (rawIndex >= plan.rawCount) {
+    throw new RangeError('plan.rawIndices contains an index outside the raw candidate space.');
+  }
+  return generateCandidateFromModel(cached.model, rawIndex);
 }
 
 function getDefaultPatternConfig() {
@@ -168,10 +416,17 @@ function getDefaultPatternConfig() {
 }
 
 module.exports = {
+  SCHEMA_VERSION,
+  GENERATOR_VERSION,
+  MAX_RAW_CANDIDATES,
   DEFAULT_CONFIG,
   calculateCandidateSpace,
+  candidateForUniqueIndex,
+  compileCandidatePlan,
+  createCandidateResolver,
   generateCandidate,
   getDefaultPatternConfig,
+  normalizeConfig,
   patternForIndex,
-  normalizeConfig
+  validateConfig
 };

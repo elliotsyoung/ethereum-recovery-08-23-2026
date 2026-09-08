@@ -1,74 +1,145 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Recovery Dashboard</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Ethereum Recovery</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
   </head>
   <body>
-    <div class="app-shell">
+    <main class="app-shell">
       <header class="topbar">
         <div>
-          <h1>Wallet Recovery Dashboard</h1>
+          <p class="eyebrow">Local recovery</p>
+          <h1>Ethereum Recovery</h1>
         </div>
-        <div class="mode-wrap">
-          <span class="mode-readout">Local mode: <strong id="modeValue">DEMO</strong></span>
-          <label for="modeSelect">Mode</label>
-          <select id="modeSelect">
-            <option value="DEMO">DEMO</option>
-            <option value="REAL">REAL</option>
-          </select>
+        <div class="header-status" aria-label="Recovery state" aria-live="polite">
+          <span id="readinessBadge" class="badge badge-muted">Checking readiness</span>
+          <span id="stateValue" class="state-badge">Unknown</span>
         </div>
       </header>
 
-      <main class="layout">
-        <section class="panel status-panel">
-          <h2>Recovery Status</h2>
-          <div class="stats-grid">
-            <div><span class="label">State</span><strong id="stateValue">idle</strong></div>
-            <div><span class="label">Total guesses</span><strong id="totalGuessesValue">0</strong></div>
-            <div><span class="label">Guesses / sec</span><strong id="guessesPerSecondValue">0</strong></div>
-            <div><span class="label">Guesses / hour</span><strong id="guessesPerHourValue">0</strong></div>
-            <div><span class="label">Elapsed</span><strong id="elapsedValue">0s</strong></div>
-            <div><span class="label">Candidate index</span><strong id="candidateIndexValue">0</strong></div>
-            <div><span class="label">Current pattern</span><strong id="currentPatternValue">n/a</strong></div>
-            <div><span class="label">Candidate space</span><strong id="candidateSpaceValue">0</strong></div>
-            <div><span class="label">Complete</span><strong id="completeValue">0%</strong></div>
-            <div><span class="label">Remaining</span><strong id="remainingValue">0s</strong></div>
-            <div><span class="label">Last checkpoint</span><strong id="checkpointValue">n/a</strong></div>
-            <div><span class="label">Matches found</span><strong id="matchesValue">0</strong></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="errorBanner" class="notice notice-error" role="alert" hidden></div>
+
+      <section class="panel progress-panel" aria-labelledby="progressHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Current job</p>
+            <h2 id="progressHeading">Recovery progress</h2>
           </div>
+          <strong id="completeValue" class="percent-value">0.00%</strong>
+        </div>
 
-          <div class="progress-block">
-            <div class="progress-track"><div id="progressBar" class="progress-fill"></div></div>
+        <div
+          id="progressTrack"
+          class="progress-track"
+          role="progressbar"
+          aria-label="Candidate verification progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-valuetext="0.00 percent complete"
+        >
+          <div id="progressBar" class="progress-fill"></div>
+        </div>
+
+        <div class="progress-copy">
+          <span><strong id="verifiedValue">0</strong> verified</span>
+          <span><strong id="uniqueTotalValue">0</strong> unique candidates</span>
+        </div>
+
+        <div id="controls" class="button-row" role="group" aria-label="Recovery controls">
+          <button id="startBtn" type="button">Start</button>
+          <button id="pauseBtn" type="button">Pause</button>
+          <button id="resumeBtn" type="button">Resume</button>
+          <button id="stopBtn" class="button-danger" type="button">Stop</button>
+          <button id="benchmarkBtn" class="button-secondary" type="button">Benchmark</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="detailsHeading">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Live details</p>
+            <h2 id="detailsHeading">Job status</h2>
           </div>
+          <span id="modeValue" class="mode-badge">—</span>
+        </div>
 
-          <div class="button-row">
-            <button id="startBtn">Start</button>
-            <button id="pauseBtn">Pause</button>
-            <button id="resumeBtn">Resume</button>
-            <button id="stopBtn">Stop</button>
-            <button id="benchmarkBtn">Benchmark</button>
-            <button id="revealBtn" class="quiet-button">Reveal found password</button>
+        <dl class="stats-grid">
+          <div class="stat stat-wide">
+            <dt>Job ID</dt>
+            <dd id="jobIdValue" class="job-id" title="No job configured">Not configured</dd>
           </div>
-
-          <canvas id="chartCanvas" width="700" height="180"></canvas>
-          <p id="benchmarkSummary" class="muted">No benchmark recorded.</p>
-        </section>
-
-        <section class="panel pattern-panel">
-          <h2>Pattern Editor</h2>
-          <textarea id="patternJson" rows="18"></textarea>
-          <div class="editor-actions">
-            <button id="savePatternsBtn">Apply Patterns</button>
-            <span id="candidateEstimate">Estimated candidates: 0</span>
+          <div class="stat">
+            <dt>Readiness</dt>
+            <dd id="readyValue">Checking</dd>
           </div>
-          <p class="muted">Patterns are stored locally in data/patterns.json. Changes apply to the next run.</p>
-        </section>
-      </main>
-    </div>
+          <div class="stat">
+            <dt>Match status</dt>
+            <dd id="matchValue">Not found</dd>
+          </div>
+          <div class="stat">
+            <dt>Raw candidates</dt>
+            <dd id="rawCountValue">0</dd>
+          </div>
+          <div class="stat">
+            <dt>Unique candidates</dt>
+            <dd id="uniqueCountValue">0</dd>
+          </div>
+          <div class="stat">
+            <dt>Duplicates removed</dt>
+            <dd id="duplicatesValue">0</dd>
+          </div>
+          <div class="stat">
+            <dt>Next unique index</dt>
+            <dd id="nextIndexValue">0</dd>
+          </div>
+          <div class="stat">
+            <dt>Active workers</dt>
+            <dd id="workersValue">0</dd>
+          </div>
+          <div class="stat">
+            <dt>Rolling rate</dt>
+            <dd id="rateValue">0/sec</dd>
+          </div>
+          <div class="stat">
+            <dt>Rolling hourly rate</dt>
+            <dd id="hourlyRateValue">0/hour</dd>
+          </div>
+          <div class="stat">
+            <dt>Active elapsed</dt>
+            <dd id="elapsedValue">0s</dd>
+          </div>
+          <div class="stat">
+            <dt>Estimated remaining</dt>
+            <dd id="etaValue">—</dd>
+          </div>
+          <div class="stat">
+            <dt>Checkpoint age</dt>
+            <dd id="checkpointValue">Not yet saved</dd>
+          </div>
+          <div class="stat">
+            <dt>Error</dt>
+            <dd id="errorValue">None</dd>
+          </div>
+        </dl>
+      </section>
 
-    <script src="/app.js"></script>
+      <section class="panel benchmark-panel" aria-labelledby="benchmarkHeading">
+        <div>
+          <p class="eyebrow">Worker selection</p>
+          <h2 id="benchmarkHeading">Benchmark</h2>
+        </div>
+        <p id="benchmarkSummary" class="muted">No benchmark recorded.</p>
+      </section>
+
+      <p class="terminal-note">
+        A recovered password is never shown in this dashboard. Use the terminal reveal command after a match.
+      </p>
+    </main>
   </body>
 </html>

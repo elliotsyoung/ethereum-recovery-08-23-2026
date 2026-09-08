@@ -4,15 +4,20 @@
   "private": true,
   "description": "Local-only Ethereum keystore password recovery dashboard and recovery engine.",
   "main": "server/index.js",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "nodemon server/index.js",
-    "benchmark": "node server/recovery/benchmark.js",
-    "test": "node --test"
+    "start": "RECOVERY_MODE=DEMO node server/index.js",
+    "real": "RECOVERY_MODE=REAL node server/index.js",
+    "dev": "RECOVERY_MODE=DEMO nodemon server/index.js --fresh",
+    "config:init": "node server/configInit.js",
+    "reveal": "node server/reveal.js",
+    "test": "node scripts/test.js"
   },
   "repository": {
     "type": "git",
-    "url": "http://localhost:26831/elliotsyoung/ethereum-recovery-08-23-2026"
+    "url": "git+ssh://git@github.com/elliotsyoung/ethereum-recovery-08-23-2026.git"
   },
   "license": "MIT",
   "dependencies": {
@@ -21,5 +26,16 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "server",
+      "public"
+    ],
+    "ext": "js,html,css",
+    "ignore": [
+      "data/**",
+      "wallet/**"
+    ]
   }
 }
