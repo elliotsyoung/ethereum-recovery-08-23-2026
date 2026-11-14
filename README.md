@@ -40,7 +40,7 @@ Words contain English keyboard letters `A–Z` and `a–z`, with 1–32 letters 
 ! @ # $ % ^ & * ( ) _ + { } | : " < > ? ~
 ```
 
-Digit and symbol counts are separate. Defaults are 8–24 total characters, exactly **two digits**, and **two to four symbols**. This accommodates uncertainty between remembering four nonletters and four symbols. Set the symbol minimum to four if you are confident there were at least four symbols. Each count can range from 0 to 12.
+Digits and symbols both count toward the combined nonletter total. Defaults are 8–24 total characters, exactly **two digits**, and **two to four symbols**: **four to six nonletters combined**. This starts with a two-digit split; adjust the separate ranges to try other splits or larger totals. Each count can range from 0 to 12.
 
 **Repeated** mode searches one repeated character per group: `22`, `777`, `!!`, or `####`. **All combinations** also covers mixed groups such as `27` and `!?`, including leading zeroes for numbers. Repeated digits apply separately to each group in the split layout, so its two groups can differ.
 
