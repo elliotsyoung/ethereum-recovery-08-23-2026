@@ -5,6 +5,8 @@ const path = require('node:path');
 const { once } = require('node:events');
 const { Worker } = require('node:worker_threads');
 const { createVerificationContext } = require('../server/recovery/walletVerifier');
+const { buildGuidedConfig } = require('../server/recovery/guidedConfig');
+const { compileCandidatePlan } = require('../server/recovery/candidateGenerator');
 
 const workerPath = path.resolve(__dirname, '../server/recovery/recoveryVerifierWorker.js');
 const fixturePath = path.resolve(__dirname, 'fixtures/low-cost-v3.json');
@@ -57,4 +59,35 @@ test('verifier worker sanitizes invalid index failures', async (t) => {
     index: 99,
     errorCode: 'VERIFICATION_FAILED'
   });
+});
+
+test('guided verifier workers resolve compact indexes without allocating an index map', async (t) => {
+  const guided = buildGuidedConfig({
+    word1: ['Al'], word2: ['pha'], caseStyles: ['none'], layouts: ['suffix'],
+    minLength: 7, maxLength: 7, minDigits: 1, maxDigits: 1,
+    minSymbols: 1, maxSymbols: 1, symbols: '!'
+  });
+  const plan = compileCandidatePlan(guided);
+  assert.equal(plan.kind, 'guided');
+  assert.equal(plan.rawIndices, null);
+  assert.equal(plan.uniqueCount, 10);
+  const worker = new Worker(workerPath, {
+    workerData: {
+      config: guided,
+      planKind: plan.kind,
+      rawIndices: null,
+      uniqueCount: plan.uniqueCount,
+      verificationContext: createVerificationContext(fs.readFileSync(fixturePath, 'utf8'))
+    }
+  });
+  t.after(() => worker.terminate());
+  worker.postMessage({ type: 'verify', index: 0 });
+  const [miss] = await once(worker, 'message');
+  assert.deepEqual(miss, { type: 'result', index: 0, matched: false });
+  worker.postMessage({ type: 'verify', index: 1 });
+  const [match] = await once(worker, 'message');
+  assert.deepEqual(match, { type: 'result', index: 1, matched: true });
+  worker.postMessage({ type: 'verify', index: 10 });
+  const [invalid] = await once(worker, 'message');
+  assert.deepEqual(invalid, { type: 'error', index: 10, errorCode: 'VERIFICATION_FAILED' });
 });

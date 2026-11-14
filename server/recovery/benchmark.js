@@ -2,9 +2,11 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { performance } = require('node:perf_hooks');
 const { calculateScryptMemoryBytes } = require('./walletVerifier');
 
 const WORKER_CHOICES = [1, 2, 4];
+const BENCHMARK_VERSION = 2;
 const MEMORY_HEADROOM_BYTES = 64 * 1024 * 1024;
 
 function estimatedMemoryPerWorker(verificationContext) {
@@ -36,67 +38,84 @@ function randomCandidate() {
   return `benchmark-${crypto.randomBytes(32).toString('base64url')}`;
 }
 
-function runWorker(verificationContext, candidates) {
+function benchmarkWidth(verificationContext, workerCount, checksPerWorker = 3) {
+  if (!Number.isSafeInteger(workerCount) || workerCount < 1 || workerCount > 4
+      || !Number.isSafeInteger(checksPerWorker) || checksPerWorker < 1) {
+    return Promise.reject(new Error('BENCHMARK_OPTIONS_INVALID'));
+  }
   const workerPath = path.resolve(__dirname, 'benchmarkWorker.js');
   return new Promise((resolve, reject) => {
-    const worker = new Worker(workerPath, {
-      workerData: {
-        verificationContext,
-        warmupCandidates: [randomCandidate()],
-        candidates
-      }
-    });
+    const workers = [];
+    const ready = new Set();
+    const completions = new Map();
+    const exited = new Set();
+    let startedAt = null;
+    let completedAt = null;
     let settled = false;
-    let completion = null;
-    const fail = () => {
+    const fail = (code = 'BENCHMARK_WORKER_FAILED') => {
       if (settled) return;
       settled = true;
-      Promise.resolve(worker.terminate())
-        .catch(() => undefined)
-        .finally(() => reject(new Error('BENCHMARK_WORKER_FAILED')));
+      // Do not start the next width while failed siblings still consume KDF
+      // memory or CPU. Every width owns the complete worker lifecycle.
+      Promise.allSettled(workers.map((worker) => worker.terminate()))
+        .then(() => reject(new Error(code)));
     };
-    worker.once('message', (message) => {
-      if (message?.type === 'complete') {
-        completion = message;
-      } else {
-        fail();
+    try {
+      for (let index = 0; index < workerCount; index += 1) {
+        const worker = new Worker(workerPath, {
+          workerData: {
+            verificationContext,
+            warmupCandidates: [randomCandidate()],
+            candidates: Array.from({ length: checksPerWorker }, randomCandidate)
+          }
+        });
+        workers.push(worker);
+        worker.on('message', (message) => {
+          if (settled) return;
+          if (message?.type === 'ready' && !ready.has(worker) && startedAt === null) {
+            ready.add(worker);
+            if (ready.size === workerCount) {
+              startedAt = performance.now();
+              try {
+                for (const participant of workers) participant.postMessage({ type: 'start' });
+              } catch {
+                fail();
+              }
+            }
+          } else if (message?.type === 'complete' && startedAt !== null
+              && !completions.has(worker) && message.checks === checksPerWorker
+              && Number.isSafeInteger(message.badMatches) && message.badMatches >= 0) {
+            completions.set(worker, message);
+            completedAt = performance.now();
+          } else {
+            fail();
+          }
+        });
+        worker.once('error', () => fail());
+        worker.once('exit', (code) => {
+          if (settled) return;
+          if (code !== 0 || !completions.has(worker)) return fail();
+          exited.add(worker);
+          if (exited.size !== workerCount) return;
+          if ([...completions.values()].some((result) => result.badMatches !== 0)) {
+            return fail('BENCHMARK_CANDIDATE_MATCHED');
+          }
+          settled = true;
+          const checks = workerCount * checksPerWorker;
+          const elapsedMs = Math.max(completedAt - startedAt, 0.001);
+          resolve({
+            workerCount,
+            checks,
+            elapsedMs,
+            guessesPerSecond: checks / (elapsedMs / 1000),
+            msPerGuess: elapsedMs / checks
+          });
+        });
       }
-    });
-    worker.once('error', fail);
-    worker.once('exit', (code) => {
-      if (settled) return;
-      settled = true;
-      if (code === 0 && completion) {
-        resolve(completion);
-      } else {
-        reject(new Error('BENCHMARK_WORKER_FAILED'));
-      }
-    });
+    } catch {
+      fail();
+    }
   });
-}
-
-async function benchmarkWidth(verificationContext, workerCount, checksPerWorker = 3) {
-  const jobs = [];
-  for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) {
-    jobs.push(runWorker(
-      verificationContext,
-      Array.from({ length: checksPerWorker }, randomCandidate)
-    ));
-  }
-  const results = await Promise.all(jobs);
-  const checks = results.reduce((sum, result) => sum + result.checks, 0);
-  const elapsedMs = Math.max(...results.map((result) => result.elapsedMs));
-  const badMatches = results.reduce((sum, result) => sum + result.badMatches, 0);
-  if (badMatches !== 0) {
-    throw new Error('BENCHMARK_CANDIDATE_MATCHED');
-  }
-  return {
-    workerCount,
-    checks,
-    elapsedMs,
-    guessesPerSecond: checks / (elapsedMs / 1000),
-    msPerGuess: elapsedMs / checks
-  };
 }
 
 async function runBenchmark({ verificationContext, workerCounts = WORKER_CHOICES } = {}) {
@@ -123,6 +142,7 @@ async function runBenchmark({ verificationContext, workerCounts = WORKER_CHOICES
 }
 
 module.exports = {
+  BENCHMARK_VERSION,
   MEMORY_HEADROOM_BYTES,
   WORKER_CHOICES,
   allowedWorkerCounts,

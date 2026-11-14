@@ -1,6 +1,13 @@
 const SCHEMA_VERSION = 2;
 const GENERATOR_VERSION = 2;
 const MAX_RAW_CANDIDATES = 10_000_000;
+const {
+  isGuidedConfig,
+  validateGuidedConfig,
+  buildGuidedModel,
+  guidedCandidateFromModel,
+  guidedEntryForIndex
+} = require('./guidedConfig');
 
 const CAPITALIZATION_MODES = new Set(['none', 'title', 'upper', 'lower']);
 const MUTATION_MODES = new Set(['none', 'double-last', 'drop-vowel']);
@@ -99,6 +106,7 @@ function assertStringArray(value, location, allowedValues = null) {
 }
 
 function validateConfig(config) {
+  if (isGuidedConfig(config)) return validateGuidedConfig(config);
   assertRecord(config, 'config');
 
   if (config.schemaVersion !== SCHEMA_VERSION) {
@@ -316,24 +324,48 @@ function generateCandidateFromModel(model, candidateIndex) {
 }
 
 function calculateCandidateSpace(config) {
+  if (isGuidedConfig(config)) return buildGuidedModel(config).rawCount;
   return buildCandidateModel(config).rawCount;
 }
 
 function patternForIndex(config, candidateIndex) {
+  if (isGuidedConfig(config)) {
+    const entry = guidedEntryForIndex(buildGuidedModel(config), candidateIndex);
+    return { pattern: { name: entry.layout }, offset: entry.offset, total: entry.size };
+  }
   const entry = patternEntryForRawIndex(buildCandidateModel(config), candidateIndex);
   return { pattern: entry.pattern, offset: entry.offset, total: entry.size };
 }
 
 function generateCandidate(config, candidateIndex) {
+  if (isGuidedConfig(config)) return guidedCandidateFromModel(buildGuidedModel(config), candidateIndex);
   return generateCandidateFromModel(buildCandidateModel(config), candidateIndex);
 }
 
 function createCandidateResolver(config) {
+  if (isGuidedConfig(config)) {
+    const model = buildGuidedModel(config);
+    return (candidateIndex) => guidedCandidateFromModel(model, candidateIndex);
+  }
   const model = buildCandidateModel(config);
   return (candidateIndex) => generateCandidateFromModel(model, candidateIndex);
 }
 
 function compileCandidatePlan(config) {
+  if (isGuidedConfig(config)) {
+    const model = buildGuidedModel(config);
+    const plan = {
+      schemaVersion: SCHEMA_VERSION,
+      generatorVersion: GENERATOR_VERSION,
+      kind: 'guided',
+      rawCount: model.rawCount,
+      uniqueCount: model.rawCount,
+      duplicateCount: 0,
+      rawIndices: null
+    };
+    planModelCache.set(plan, { sourceConfig: config, model });
+    return plan;
+  }
   const model = buildCandidateModel(config);
   const firstRawIndices = new Uint32Array(model.rawCount);
   const seen = new Set();
@@ -361,7 +393,7 @@ function compileCandidatePlan(config) {
   return plan;
 }
 
-function assertCandidatePlan(plan, expectedRawCount) {
+function assertCandidatePlan(plan, expectedRawCount, guided = false) {
   assertRecord(plan, 'plan');
   if (plan.schemaVersion !== SCHEMA_VERSION) {
     throw new RangeError(`plan.schemaVersion must be ${SCHEMA_VERSION}.`);
@@ -369,7 +401,10 @@ function assertCandidatePlan(plan, expectedRawCount) {
   if (plan.generatorVersion !== GENERATOR_VERSION) {
     throw new RangeError(`plan.generatorVersion must be ${GENERATOR_VERSION}.`);
   }
-  if (!(plan.rawIndices instanceof Uint32Array)) {
+  if (guided && (plan.kind !== 'guided' || plan.rawIndices !== null)) {
+    throw new TypeError('Guided plans must use direct indexing.');
+  }
+  if (!guided && !(plan.rawIndices instanceof Uint32Array)) {
     throw new TypeError('plan.rawIndices must be a Uint32Array.');
   }
   for (const [name, value] of [
@@ -384,7 +419,7 @@ function assertCandidatePlan(plan, expectedRawCount) {
   if (plan.rawCount !== expectedRawCount) {
     throw new RangeError('plan.rawCount does not match the supplied configuration.');
   }
-  if (plan.uniqueCount !== plan.rawIndices.length) {
+  if (plan.uniqueCount !== (guided ? expectedRawCount : plan.rawIndices.length)) {
     throw new RangeError('plan.uniqueCount does not match plan.rawIndices.length.');
   }
   if (plan.duplicateCount !== plan.rawCount - plan.uniqueCount) {
@@ -393,17 +428,19 @@ function assertCandidatePlan(plan, expectedRawCount) {
 }
 
 function candidateForUniqueIndex(config, plan, uniqueIndex) {
+  const guided = isGuidedConfig(config);
   let cached = plan && typeof plan === 'object' ? planModelCache.get(plan) : null;
   if (!cached || cached.sourceConfig !== config) {
-    const model = buildCandidateModel(config);
-    assertCandidatePlan(plan, model.rawCount);
+    const model = guided ? buildGuidedModel(config) : buildCandidateModel(config);
+    assertCandidatePlan(plan, model.rawCount, guided);
     cached = { sourceConfig: config, model };
     planModelCache.set(plan, cached);
   } else {
-    assertCandidatePlan(plan, cached.model.rawCount);
+    assertCandidatePlan(plan, cached.model.rawCount, guided);
   }
 
   assertIndex(uniqueIndex, plan.uniqueCount, 'uniqueIndex');
+  if (guided) return guidedCandidateFromModel(cached.model, uniqueIndex);
   const rawIndex = plan.rawIndices[uniqueIndex];
   if (rawIndex >= plan.rawCount) {
     throw new RangeError('plan.rawIndices contains an index outside the raw candidate space.');

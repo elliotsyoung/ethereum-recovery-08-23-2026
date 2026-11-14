@@ -1,13 +1,14 @@
 const fs = require('node:fs');
 const { Worker } = require('node:worker_threads');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const {
   APP_SCHEMA_VERSION,
   atomicWritePrivateJson,
   readJsonFile
 } = require('../runtime');
 const { candidateForUniqueIndex } = require('./candidateGenerator');
-const { allowedWorkerCounts, runBenchmark } = require('./benchmark');
+const { BENCHMARK_VERSION, allowedWorkerCounts, runBenchmark } = require('./benchmark');
 const { loadCheckpoint, saveCheckpoint } = require('./checkpoint');
 const { confirmCandidate } = require('./walletVerifier');
 
@@ -52,6 +53,7 @@ class RecoveryEngine {
     this.completed = new Set();
     this.nextToAssign = this.nextCandidateIndex;
     this.rateSamples = [];
+    this.segmentVerified = 0;
     this.segmentStartedAt = null;
     this.checkpointTimer = null;
     this.benchmark = null;
@@ -91,6 +93,7 @@ class RecoveryEngine {
       });
       const result = stored?.benchmark;
       if (stored.schemaVersion !== APP_SCHEMA_VERSION
+          || stored.benchmarkVersion !== BENCHMARK_VERSION
           || stored.jobId !== this.job.jobId
           || stored.workerSetting !== this.workerSetting
           || typeof stored.measuredAt !== 'string'
@@ -204,7 +207,7 @@ class RecoveryEngine {
 
   _activeElapsedNow() {
     if (this.segmentStartedAt === null) return this.activeElapsedMs;
-    return this.activeElapsedMs + (Date.now() - this.segmentStartedAt);
+    return this.activeElapsedMs + (performance.now() - this.segmentStartedAt);
   }
 
   _closeActiveSegment() {
@@ -270,6 +273,7 @@ class RecoveryEngine {
         : Number(this.workerSetting);
       atomicWritePrivateJson(this.job.paths.benchmarkPath, {
         schemaVersion: APP_SCHEMA_VERSION,
+        benchmarkVersion: BENCHMARK_VERSION,
         jobId: this.job.jobId,
         workerSetting: this.workerSetting,
         measuredAt: new Date().toISOString(),
@@ -292,6 +296,8 @@ class RecoveryEngine {
           workerData: {
             config: this.job.config,
             rawIndices: this.job.candidatePlan.rawIndices,
+            planKind: this.job.candidatePlan.kind,
+            uniqueCount: this.job.candidatePlan.uniqueCount,
             verificationContext: this.job.wallet.verificationContext
           }
         });
@@ -354,7 +360,8 @@ class RecoveryEngine {
     }
 
     this.totalVerified += 1;
-    this.rateSamples.push(Date.now());
+    this.segmentVerified += 1;
+    this.rateSamples.push(performance.now());
     this._trimRateSamples();
     if (message.matched) {
       void this._confirmMatch(message.index);
@@ -496,8 +503,9 @@ class RecoveryEngine {
     this.errorCode = null;
     this.matchedUniqueIndex = null;
     if (!this.startedAt) this.startedAt = Date.now();
-    this.segmentStartedAt = Date.now();
+    this.segmentStartedAt = performance.now();
     this.rateSamples = [];
+    this.segmentVerified = 0;
     this.nextToAssign = this.nextCandidateIndex;
     try {
       this._checkpoint('running');
@@ -586,7 +594,7 @@ class RecoveryEngine {
   }
 
   _trimRateSamples() {
-    const cutoff = Date.now() - RATE_WINDOW_MS;
+    const cutoff = performance.now() - RATE_WINDOW_MS;
     while (this.rateSamples.length && this.rateSamples[0] < cutoff) {
       this.rateSamples.shift();
     }
@@ -596,17 +604,34 @@ class RecoveryEngine {
     if (this.state !== 'running' || this.segmentStartedAt === null) return 0;
     this._trimRateSamples();
     if (!this.rateSamples.length) return 0;
-    const windowStart = Math.max(Date.now() - RATE_WINDOW_MS, this.segmentStartedAt);
-    return this.rateSamples.length / Math.max((Date.now() - windowStart) / 1000, 0.001);
+    const now = performance.now();
+    const windowStart = Math.max(now - RATE_WINDOW_MS, this.segmentStartedAt);
+    return this.rateSamples.length / Math.max((now - windowStart) / 1000, 0.001);
   }
 
   getStatus() {
     const uniqueCount = this.job.candidatePlan.uniqueCount;
-    const progressIndex = this.state === 'found' && this.matchedUniqueIndex !== null
-      ? Math.max(this.nextCandidateIndex, this.matchedUniqueIndex + 1)
-      : this.nextCandidateIndex;
+    // The checkpoint frontier is the coverage guaranteed across restarts.
+    // A match beyond it is one checked candidate, not proof that every earlier
+    // in-flight candidate completed. Attempt counts deliberately include replay.
+    const progressIndex = this.nextCandidateIndex
+      + (this.state === 'found' && this.matchedUniqueIndex !== null ? 1 : 0);
+    const remainingCandidateCount = Math.max(uniqueCount - progressIndex, 0);
+    const activeElapsedMs = Math.round(this._activeElapsedNow());
     const liveRate = this._liveRate();
-    const estimateRate = liveRate || this.benchmark?.guessesPerSecond || 0;
+    const hasLiveMeasurement = this.state === 'running'
+      && (this.segmentVerified > 0
+        || performance.now() - this.segmentStartedAt >= RATE_WINDOW_MS);
+    const averageRate = activeElapsedMs > 0 ? this.totalVerified / (activeElapsedMs / 1000) : 0;
+    const estimateSource = hasLiveMeasurement ? 'live'
+      : averageRate > 0 && this.state !== 'running' ? 'average'
+        : this.benchmark?.guessesPerSecond > 0 ? 'benchmark' : null;
+    const estimateRate = estimateSource === 'live' ? liveRate
+      : estimateSource === 'average' ? averageRate
+        : estimateSource === 'benchmark' ? this.benchmark.guessesPerSecond : 0;
+    const estimatedSecondsRemaining = ['found', 'exhausted'].includes(this.state) ? 0
+      : this.state === 'failed' ? null
+        : estimateRate > 0 ? remainingCandidateCount / estimateRate : null;
     return {
       mode: this.job.mode,
       ready: true,
@@ -616,6 +641,9 @@ class RecoveryEngine {
       uniqueCandidateCount: uniqueCount,
       duplicatesRemoved: this.job.candidatePlan.duplicateCount,
       totalVerified: this.totalVerified,
+      searchedCandidateCount: progressIndex,
+      remainingCandidateCount,
+      uncommittedVerifiedCount: this.completed.size,
       nextCandidateIndex: this.nextCandidateIndex,
       completionPercent: uniqueCount > 0
         ? Number(((progressIndex / uniqueCount) * 100).toFixed(5))
@@ -623,14 +651,14 @@ class RecoveryEngine {
       activeWorkers: this.state === 'running' ? this.workers.length : 0,
       guessesPerSecond: liveRate,
       guessesPerHour: liveRate * 3600,
-      activeElapsedMs: Math.round(this._activeElapsedNow()),
-      estimatedSecondsRemaining: ['found', 'exhausted'].includes(this.state)
-        ? 0
-        : this.state === 'failed'
-          ? null
-          : estimateRate > 0
-            ? Math.max(uniqueCount - this.nextCandidateIndex, 0) / estimateRate
-            : null,
+      activeElapsedMs,
+      estimatedSecondsRemaining,
+      estimatedTotalSeconds: estimatedSecondsRemaining === null
+        ? null : activeElapsedMs / 1000 + estimatedSecondsRemaining,
+      estimateSource,
+      estimateRate,
+      operationInProgress: this.operationInProgress,
+      matchConfirming: this.matchPending,
       lastCheckpointAt: this.lastCheckpointAt,
       matchFound: this.state === 'found',
       errorCode: this.errorCode,

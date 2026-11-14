@@ -4,142 +4,88 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>Ethereum Recovery</title>
+    <title>Ethereum Recovery · Local workspace</title>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Local recovery</p>
-          <h1>Ethereum Recovery</h1>
-        </div>
-        <div class="header-status" aria-label="Recovery state" aria-live="polite">
-          <span id="readinessBadge" class="badge badge-muted">Checking readiness</span>
-          <span id="stateValue" class="state-badge">Unknown</span>
-        </div>
+        <a class="brand" href="/" aria-label="Ethereum Recovery home"><span class="brand-mark" aria-hidden="true">◇</span><span>Ethereum Recovery<small>LOCAL WORKSPACE</small></span></a>
+        <span id="connectionValue" class="connection"><span class="status-dot" aria-hidden="true"></span>Connecting</span>
       </header>
 
+      <div class="page-heading">
+        <div><p class="eyebrow">A smaller search. A clearer picture.</p><h1>Recover your wallet.</h1><p class="intro">Start with what you remember. Track every password checked.</p></div>
+        <div class="header-status" aria-live="polite"><span id="modeValue" class="badge" hidden>—</span><span id="stateValue" class="badge">Getting ready</span></div>
+      </div>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <div id="errorBanner" class="notice notice-error" role="alert" hidden></div>
 
-      <section class="panel progress-panel" aria-labelledby="progressHeading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Current job</p>
-            <h2 id="progressHeading">Recovery progress</h2>
-          </div>
-          <strong id="completeValue" class="percent-value">0.00%</strong>
-        </div>
-
-        <div
-          id="progressTrack"
-          class="progress-track"
-          role="progressbar"
-          aria-label="Candidate verification progress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow="0"
-          aria-valuetext="0.00 percent complete"
-        >
-          <div id="progressBar" class="progress-fill"></div>
-        </div>
-
-        <div class="progress-copy">
-          <span><strong id="verifiedValue">0</strong> verified</span>
-          <span><strong id="uniqueTotalValue">0</strong> unique candidates</span>
-        </div>
-
-        <div id="controls" class="button-row" role="group" aria-label="Recovery controls">
-          <button id="startBtn" type="button">Start</button>
-          <button id="pauseBtn" type="button">Pause</button>
-          <button id="resumeBtn" type="button">Resume</button>
-          <button id="stopBtn" class="button-danger" type="button">Stop</button>
-          <button id="benchmarkBtn" class="button-secondary" type="button">Benchmark</button>
-        </div>
+      <section id="setupPanel" class="panel setup-panel" aria-labelledby="setupHeading" hidden>
+        <div class="section-heading"><div><p class="eyebrow">01 / Set up your search</p><h2 id="setupHeading">What do you remember?</h2></div><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
+        <div id="savedSetup" class="restore-row" hidden><p>Continue your last search with its saved settings and progress.</p><button id="restoreBtn" class="button-secondary" type="button">Restore last search</button></div>
+        <div id="setupSummary" class="setup-summary" hidden></div>
+        <form id="setupForm" autocomplete="off">
+          <fieldset id="setupFields">
+            <div class="form-section">
+              <div class="step-heading"><span class="step-number">1</span><div><h3>Choose your wallet</h3><p>Everything stays in this local workspace.</p></div></div>
+              <div class="form-content">
+                <label for="modeInput">Recovery mode</label>
+                <select id="modeInput" name="mode"><option value="REAL">Recover my wallet</option><option value="DEMO">Try the demo</option></select>
+                <div id="walletField" class="field"><label for="walletInput">Keystore file path</label><input id="walletInput" name="walletPath" type="text" placeholder="/Users/you/Documents/wallet.json" spellcheck="false" autocapitalize="off" aria-describedby="walletHelp" /><p id="walletHelp" class="field-help">Paste the absolute path to your Ethereum V3 JSON keystore.</p></div>
+                <p id="demoHelp" class="field-help" hidden>The demo uses a test wallet with a known password and a small search.</p>
+              </div>
+            </div>
+            <div id="rulesFields">
+              <div class="form-section">
+                <div class="step-heading"><span class="step-number">2</span><div><h3>The two words</h3><p>Enter likely words or spelling variations, in order of likelihood.</p></div></div>
+                <div class="form-content">
+                  <div class="two-columns"><div><label for="firstWordsInput">First word possibilities</label><textarea id="firstWordsInput" rows="3" placeholder="One word per line" spellcheck="false" autocapitalize="off"></textarea></div><div><label for="secondWordsInput">Second word possibilities <span class="optional">(optional)</span></label><textarea id="secondWordsInput" rows="3" placeholder="Leave blank to reuse the first list" spellcheck="false" autocapitalize="off"></textarea></div></div>
+                  <p class="field-help">Separate words with spaces, commas, or new lines. English letters A–Z only, up to 200 distinct words per list. Leave the second list blank to try every pairing from the first list, including both orders.</p>
+                  <div class="two-columns field"><div><label for="minLengthInput">Minimum password length</label><input id="minLengthInput" type="number" min="2" max="64" step="1" value="10" /></div><div><label for="maxLengthInput">Maximum password length</label><input id="maxLengthInput" type="number" min="2" max="64" step="1" value="20" /></div></div>
+                </div>
+              </div>
+              <div class="form-section">
+                <div class="step-heading"><span class="step-number">3</span><div><h3>Numbers &amp; symbols</h3><p>Use ranges if your memory is approximate.</p></div></div>
+                <div class="form-content">
+                  <div class="range-grid"><div><label for="minDigitsInput">Minimum digits</label><input id="minDigitsInput" type="number" min="0" max="12" step="1" value="2" /></div><div><label for="maxDigitsInput">Maximum digits</label><input id="maxDigitsInput" type="number" min="0" max="12" step="1" value="2" /></div><div><label for="minSymbolsInput">Minimum symbols</label><input id="minSymbolsInput" type="number" min="0" max="12" step="1" value="2" /></div><div><label for="maxSymbolsInput">Maximum symbols</label><input id="maxSymbolsInput" type="number" min="0" max="12" step="1" value="4" /></div></div>
+                  <p class="field-help">Numbers and symbols are counted separately. For two digits and two symbols, enter 2 in each minimum.</p>
+                  <div class="field"><label for="symbolsInput">Possible symbols</label><input id="symbolsInput" type="text" spellcheck="false" autocapitalize="off" aria-describedby="symbolsHelp" /><p id="symbolsHelp" class="field-help">Only US keyboard Shift symbols, including ! @ # $ % ^ &amp; * ( ) _ + { } | : &quot; &lt; &gt; ? ~. Remove symbols you can rule out.</p></div>
+                  <details class="advanced"><summary>Refine capitalization &amp; placement</summary><div class="advanced-content">
+                    <div class="two-columns"><div><label for="digitModeInput">Number combinations</label><select id="digitModeInput"><option value="repeated">Repeated per group (11, 22, 33…)</option><option value="all">All combinations (00–99…)</option></select></div><div><label for="symbolModeInput">Symbol combinations</label><select id="symbolModeInput"><option value="repeated">Repeated symbols (!!, ##…)</option><option value="all">All combinations (!?, #&amp;…)</option></select></div></div>
+                    <fieldset class="choice-group"><legend>Word capitalization</legend><div id="caseOptions" class="checkbox-grid"><label><input type="checkbox" name="caseStyle" value="title" checked /> Title case</label><label><input type="checkbox" name="caseStyle" value="lower" /> lowercase</label><label><input type="checkbox" name="caseStyle" value="upper" /> UPPERCASE</label><label><input type="checkbox" name="caseStyle" value="none" /> As entered</label></div></fieldset>
+                    <p class="field-help">Selected capitalization styles apply to both words together. “As entered” keeps each word’s own capitalization.</p>
+                    <fieldset class="choice-group"><legend>Where the numbers and symbols go</legend><div id="layoutOptions" class="checkbox-grid layout-options"></div><p class="field-help">Each selected layout is searched. Repeated digits apply within each group, so split groups can differ. All combinations can make the search much larger.</p></fieldset>
+                  </div></details>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <div id="previewPanel" class="preview-panel" role="status" aria-live="polite" hidden><div><p class="eyebrow">Search estimate</p><strong id="previewCount">—</strong><span class="muted"> passwords</span></div><p id="previewDetails" class="field-help"></p><ul id="previewWarnings" class="preview-warnings" hidden></ul></div>
+          <div class="setup-actions"><p id="setupHint" class="field-help">Preview the search size, then prepare your recovery.</p><div class="button-row"><button id="previewBtn" class="button-secondary" type="button">Preview search</button><button id="configureBtn" type="submit">Prepare search <span aria-hidden="true">→</span></button></div></div>
+        </form>
       </section>
 
-      <section class="panel" aria-labelledby="detailsHeading">
-        <div class="section-heading compact-heading">
-          <div>
-            <p class="eyebrow">Live details</p>
-            <h2 id="detailsHeading">Job status</h2>
-          </div>
-          <span id="modeValue" class="mode-badge">—</span>
-        </div>
-
-        <dl class="stats-grid">
-          <div class="stat stat-wide">
-            <dt>Job ID</dt>
-            <dd id="jobIdValue" class="job-id" title="No job configured">Not configured</dd>
-          </div>
-          <div class="stat">
-            <dt>Readiness</dt>
-            <dd id="readyValue">Checking</dd>
-          </div>
-          <div class="stat">
-            <dt>Match status</dt>
-            <dd id="matchValue">Not found</dd>
-          </div>
-          <div class="stat">
-            <dt>Raw candidates</dt>
-            <dd id="rawCountValue">0</dd>
-          </div>
-          <div class="stat">
-            <dt>Unique candidates</dt>
-            <dd id="uniqueCountValue">0</dd>
-          </div>
-          <div class="stat">
-            <dt>Duplicates removed</dt>
-            <dd id="duplicatesValue">0</dd>
-          </div>
-          <div class="stat">
-            <dt>Next unique index</dt>
-            <dd id="nextIndexValue">0</dd>
-          </div>
-          <div class="stat">
-            <dt>Active workers</dt>
-            <dd id="workersValue">0</dd>
-          </div>
-          <div class="stat">
-            <dt>Rolling rate</dt>
-            <dd id="rateValue">0/sec</dd>
-          </div>
-          <div class="stat">
-            <dt>Rolling hourly rate</dt>
-            <dd id="hourlyRateValue">0/hour</dd>
-          </div>
-          <div class="stat">
-            <dt>Active elapsed</dt>
-            <dd id="elapsedValue">0s</dd>
-          </div>
-          <div class="stat">
-            <dt>Estimated remaining</dt>
-            <dd id="etaValue">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Checkpoint age</dt>
-            <dd id="checkpointValue">Not yet saved</dd>
-          </div>
-          <div class="stat">
-            <dt>Error</dt>
-            <dd id="errorValue">None</dd>
-          </div>
-        </dl>
+      <section id="progressPanel" class="panel progress-panel" aria-labelledby="progressHeading" hidden>
+        <div class="section-heading"><div><p class="eyebrow">02 / Recovery</p><h2 id="progressHeading">Ready when you are.</h2></div><span id="readinessBadge" class="badge">Ready</span></div>
+        <div id="resultBanner" class="result-banner" role="status" aria-live="polite" hidden></div>
+        <div class="primary-stats"><div><p class="stat-label">Passwords searched</p><strong id="verifiedValue" class="big-number">0</strong></div><div class="remaining-stat"><p class="stat-label">Remaining</p><strong id="remainingValue" class="big-number">0</strong></div></div>
+        <div id="progressTrack" class="progress-track" role="progressbar" aria-label="Password search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressBar" class="progress-fill"></div></div>
+        <div class="progress-copy"><span><strong id="completeValue">0.00%</strong> complete</span><span><strong id="uniqueTotalValue">0</strong> total passwords</span></div>
+        <dl class="live-stats"><div><dt>Current speed</dt><dd><span id="rateValue">—</span><span class="stat-unit"> / sec</span></dd></div><div><dt>Time running</dt><dd id="elapsedValue">0s</dd></div><div><dt>Estimated time left</dt><dd id="etaValue">—</dd></div><div><dt>Expected finish</dt><dd id="finishValue">—</dd></div></dl>
+        <p id="etaHelp" class="field-help">The estimate covers the entire remaining search at the measured speed. A match may appear sooner.</p>
+        <div id="controls" class="button-row" role="group" aria-label="Recovery controls"><button id="startBtn" type="button">Start recovery <span aria-hidden="true">→</span></button><button id="pauseBtn" class="button-secondary" type="button">Pause</button><button id="resumeBtn" type="button">Resume</button><button id="stopBtn" class="button-quiet" type="button">Stop</button><button id="benchmarkBtn" class="button-quiet push-right" type="button">Measure speed</button></div>
+        <p id="controlHelp" class="field-help control-help">Pausing or stopping saves your progress. You can resume later.</p>
       </section>
 
-      <section class="panel benchmark-panel" aria-labelledby="benchmarkHeading">
-        <div>
-          <p class="eyebrow">Worker selection</p>
-          <h2 id="benchmarkHeading">Benchmark</h2>
-        </div>
-        <p id="benchmarkSummary" class="muted">No benchmark recorded.</p>
+      <section id="detailsPanel" class="panel detail-panel" aria-label="Search details" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Search details</p><h2>Behind the numbers</h2></div><span id="workersValue" class="muted">0 workers</span></div>
+        <p id="benchmarkSummary" class="field-help">Speed will be measured on this machine.</p>
+        <details class="job-details"><summary>Job &amp; saved progress</summary><dl class="detail-grid"><div><dt>Job ID</dt><dd id="jobIdValue" class="mono">—</dd></div><div><dt>Checkpoint</dt><dd id="checkpointValue">—</dd></div><div><dt>Unique passwords</dt><dd id="uniqueCountValue">0</dd></div><div><dt>Duplicates removed</dt><dd id="duplicatesValue">0</dd></div><div><dt>Contiguous checked position</dt><dd id="nextIndexValue">0</dd></div><div><dt>Total verification attempts</dt><dd id="attemptsValue">0</dd></div><div><dt>Last error</dt><dd id="errorValue">None</dd></div></dl></details>
+        <div id="restartRow" class="restart-row" hidden><p class="field-help">Restarting archives the previous checkpoint and resets this search to zero.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
       </section>
-
-      <p class="terminal-note">
-        A recovered password is never shown in this dashboard. Use the terminal reveal command after a match.
-      </p>
+      <footer><span class="status-dot" aria-hidden="true"></span> Runs on your machine <span class="footer-divider">·</span> Progress is saved locally <span class="footer-divider">·</span> No wallet connection needed</footer>
     </main>
   </body>
 </html>

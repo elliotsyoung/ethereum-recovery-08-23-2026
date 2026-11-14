@@ -8,9 +8,10 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "start": "RECOVERY_MODE=DEMO node server/index.js",
+    "start": "node scripts/start.js",
+    "demo": "RECOVERY_MODE=DEMO node server/index.js",
     "real": "RECOVERY_MODE=REAL node server/index.js",
-    "dev": "RECOVERY_MODE=DEMO nodemon server/index.js --fresh",
+    "dev": "nodemon server/index.js --setup",
     "config:init": "node server/configInit.js",
     "reveal": "node server/reveal.js",
     "test": "node scripts/test.js"

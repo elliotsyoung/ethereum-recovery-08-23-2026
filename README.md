@@ -1,169 +1,158 @@
-# Local Ethereum Keystore Password Recovery
+# Local Ethereum Password Recovery
 
-This is a single-owner, local macOS tool for testing generated password candidates against an Ethereum Web3 Secret Storage V3 keystore. The dashboard is limited to status and recovery controls; wallet selection, pattern configuration, and password reveal are terminal-only.
+A local dashboard for recovering a forgotten Ethereum keystore password from likely two-word combinations. Enter what you remember, preview the exact search size, and follow the search with saved progress and a rough completion estimate.
 
-The process binds only to `127.0.0.1`. It does not use RPC, sign messages or transactions, broadcast transactions, upload files, or move assets. Its final action is to verify and print a recovered password in the local terminal.
+Requires **macOS and Node 24**. macOS supplies `lockf`, which prevents two processes from working on the same job. Node is pinned in `.nvmrc`; if needed, run `nvm install` and `nvm use` once.
 
-## Before using a real wallet
-
-This repository was previously public. Treat every previously published password hint or pattern as disclosed and never reuse it for any credential. Before introducing a real wallet, confirm that the GitHub repository is private and that its reachable history no longer contains the old hint files:
-
-```bash
-git rev-list --objects --all | rg '(^| )(data/patterns\.json|copilot-instructions\.md)$'
-```
-
-That command must produce no output. Do not commit a real keystore, real pattern file, runtime artifact, recovered password, or private key. Keep an independently secured backup of the original keystore.
-
-## Install and test
-
-Node 24 is required and pinned by `.nvmrc`:
-
-```bash
-nvm install 24
-nvm use
-npm ci
-npm test
-```
-
-Use `npm ci`, not `npm install`, for a reproducible dependency tree. Tests use temporary runtime directories and must not modify application runtime state.
-
-## Demo
+## Start
 
 ```bash
 npm start
 ```
 
-Open <http://127.0.0.1:3000> and select **Start**. `npm start` always uses DEMO mode; the known demo password is the first unique candidate, so a clean run should reach `found` immediately. The sanitized demo configuration should compile from 462,600 raw candidates to 352,320 unique candidates, removing 110,280 duplicates. The generated demo keystore and all progress remain in the protected runtime directory described below.
+The launcher installs missing dependencies with `npm ci` on first launch, then serves the dashboard at <http://127.0.0.1:3000>. Dependency installation requires network access; recovery itself runs locally. Open the printed address and choose **Try the demo** for a complete rehearsal, or **Recover my wallet** to configure your search. The guided demo searches 1,000 candidates and finds its known test password.
 
-`npm run dev` is also DEMO-only. Do not use the development watcher for a real recovery.
-
-## Real recovery
-
-### 1. Create the protected pattern file
+For a real wallet, use an absolute path to a local keystore JSON file owned by your account with owner-only permissions:
 
 ```bash
-npm run config:init
+chmod 600 "/absolute/path/to/wallet.json"
 ```
 
-The command prints the new file path and refuses to overwrite an existing file. By default it creates:
+The form sends the path and search settings only to the local server. The original wallet is read without modification. Supported files are Ethereum Web3 Secret Storage **V3**, using **scrypt**, **aes-128-ctr**, and **dklen=32**, with a maximum size of 1 MiB. PBKDF2 keystores and symbolic links are unsupported.
+
+To keep macOS awake during a long search:
+
+```bash
+caffeinate -i npm start
+```
+
+## Set up the search
+
+The form asks for three groups of information:
+
+1. **Wallet:** the local keystore path, or demo mode.
+2. **Words and length:** likely first and second words, plus minimum and maximum password length. Supply up to 200 distinct words per list, separated by spaces, commas, or newlines. Leave the second list blank to reuse the first list and try every pairing, including both orders.
+3. **Digits and symbols:** minimum and maximum counts, plus the possible symbols. Capitalization, placement, and combination modes are available under the refinement controls.
+
+Words contain English keyboard letters `A–Z` and `a–z`, with 1–32 letters per word. The total password length can be 2–64 characters. Digits are `0–9`; symbols are the shifted US English keyboard characters:
 
 ```text
-~/Library/Application Support/Ethereum Recovery/patterns.json
+! @ # $ % ^ & * ( ) _ + { } | : " < > ? ~
 ```
 
-Edit that local file with a trusted editor and keep it mode `0600`. Only the sanitized [`data/patterns.example.json`](data/patterns.example.json) belongs in Git. Keep each prioritized job at or below 10,000,000 raw candidates; split larger searches into smaller, most-likely-first configurations.
+Digit and symbol counts are separate. Defaults are 8–24 total characters, exactly **two digits**, and **two to four symbols**. This accommodates uncertainty between remembering four nonletters and four symbols. Set the symbol minimum to four if you are confident there were at least four symbols. Each count can range from 0 to 12.
 
-To create a protected config at another absolute path:
+**Repeated** mode searches one repeated character per group: `22`, `777`, `!!`, or `####`. **All combinations** also covers mixed groups such as `27` and `!?`, including leading zeroes for numbers. Repeated digits apply separately to each group in the split layout, so its two groups can differ.
+
+| Layout | Structure | Illustrative candidate |
+| --- | --- | --- |
+| Suffix | word + word + digits + symbols | `RiverStone22!!` |
+| Between | word + digits + word + symbols | `River22Stone!!` |
+| Split | word + digits + word + digits + symbols | `River2Stone7!!` |
+
+All three layouts are selected by default. Between needs at least one digit; split needs at least two and tries every nonempty division of the digit count. Symbols are a trailing group in these layouts. Title case and lowercase are selected by default; uppercase and “as entered” are also available. A selected case style applies to both words together. “As entered” preserves the spelling and capitalization in your lists.
+
+Select **Preview search** to see the count, then **Prepare search** to validate the wallet and measure its actual verification speed. Review the estimate and select **Start recovery**. Automatic calibration measures 1, 2, and 4 workers when their estimated memory fits within half of system RAM, then selects the fastest measured width. Override it with `npm start -- --workers 1` through `4`.
+
+Coverage is defined by your word lists, case styles, layouts, and combination choices. This is a targeted search; there is no bundled universal dictionary. An exhausted search means every candidate in that selection was checked. Broaden your lists or rules as needed. All-combination searches can grow enormously even though preparation is fast.
+
+## Progress and recovery controls
+
+The dashboard refreshes once per second while visible and shows passwords searched, remaining candidates, current checks per second, active runtime, estimated time left, and expected finish time.
+
+- **Passwords searched** and **Remaining** use the contiguous candidate coverage that can be resumed safely. Out-of-order worker completions join that count when the preceding work finishes. A found match is counted without implying that earlier unfinished work completed.
+- **Total verification attempts** in the details includes checks repeated after an interruption. Attempts can exceed the unique candidate count.
+- **Current speed** uses a rolling 30-second window. The initial estimate comes from calibration; live measurements take over during recovery. A stalled search reports an unknown estimate. Paused searches can use their historical average as a reference.
+- **Time running** uses a monotonic clock and excludes paused and offline time. The ETA estimates the full remaining search at the measured rate, not the time at which a match will appear. It changes with machine load and is only a heuristic.
+
+**Pause** and **Stop** both save a durable checkpoint before acknowledging completion. Resume a paused search with **Resume**; continue a stopped search with **Start recovery**. Neither discards progress. `Ctrl-C` or `SIGTERM` saves a running job as interrupted before shutdown. Periodic checkpoints occur every 15 seconds; work after the last checkpoint may repeat after an abrupt crash, without skipping candidates.
+
+After restarting `npm start`, choose **Restore last search** to load the previous settings and compatible progress. **Edit search** restores the current settings to the form so you can refine them. Pause or stop before changing an active search. A different wallet or configuration creates a different job; the previous job remains on disk.
+
+**Restart from zero** archives the current checkpoint and prepares that same search from its beginning. It is available while the search is inactive. The CLI equivalent is `npm start -- --fresh`, which applies to the first search prepared or restored in that launch.
+
+## Reveal a match
+
+When a match is found, the dashboard shows a terminal command. Run it locally to reverify and reveal the recovered password:
 
 ```bash
-npm run config:init -- --out "/absolute/path/patterns.json"
+npm run reveal -- --job "<jobId>"
 ```
 
-Its containing directory must be newly created by the command or already owned by you with mode `0700`; unsafe existing directory permissions are rejected and never changed automatically.
+The dashboard does not display the password. Reveal reloads the saved configuration, regenerates the matching candidate, checks the exact wallet fingerprint, and confirms the decrypted address with ethers. It writes the password to terminal stdout without creating a plaintext result file. Keep that output private.
 
-### 2. Preflight the keystore
-
-Use an absolute path to an owner-readable, owner-only regular file. Symlinks and files larger than 1 MiB are rejected.
+If you selected a custom runtime directory, use that same directory for reveal. The guided dashboard includes it in the displayed command:
 
 ```bash
-WALLET_PATH="/absolute/path/to/wallet.json"
-chmod 600 "$WALLET_PATH"
+npm start -- --runtime-dir "/absolute/private/runtime"
+npm run reveal -- --job "<jobId>" --runtime-dir "/absolute/private/runtime"
 ```
 
-Only V3 keystores using `aes-128-ctr`, scrypt, and `dklen=32` are supported. The keystore fields, address, and scrypt parameters are validated before candidate work begins.
+An optional `--wallet "/absolute/path/to/wallet.json"` supplies a moved copy of the exact original wallet.
 
-### 3. Launch
+## Local files and boundaries
 
-Keep macOS awake while the process runs:
-
-```bash
-caffeinate -i npm run real -- --wallet "$WALLET_PATH" --workers auto
-```
-
-If the pattern file is not at its default location, pass it explicitly:
-
-```bash
-caffeinate -i npm run real -- \
-  --wallet "$WALLET_PATH" \
-  --patterns "/absolute/path/patterns.json" \
-  --workers auto
-```
-
-`--workers auto` benchmarks the wallet's actual KDF at 1, 2, and 4 workers when permitted by the 50%-of-system-memory ceiling, then chooses the fastest measured width. To constrain the run, use `--workers 1`, `2`, `3`, or `4`. Open <http://127.0.0.1:3000>, review readiness and candidate counts, then select **Start**.
-
-The startup output includes the job ID. A job ID binds the mode, exact wallet hash, canonical configuration hash, schema version, and generator version. A different wallet or configuration cannot resume that job.
-
-### Pause, stop, restart, and resume
-
-Pause and Stop return only after a durable checkpoint. `Ctrl-C` or `SIGTERM` checkpoints a running job as `interrupted` before shutdown.
-
-To resume after a restart, run the identical launch command, confirm the same job ID, open the dashboard, and select **Resume**. Active elapsed time excludes paused and offline time. Work that was in flight at shutdown can repeat, but no candidate index is skipped.
-
-To intentionally restart the same job from index zero, append `--fresh` to the launch command. The prior compatible checkpoint is timestamp-archived in the job directory; it is not deleted.
-
-### Reveal a found password
-
-The dashboard reports that a match exists but never returns the password. After the state is `found`, use the printed job ID:
-
-```bash
-npm run reveal -- --job "<jobId>" --wallet "$WALLET_PATH"
-```
-
-`--wallet` is optional while the wallet remains at the path recorded in the protected manifest. Reveal verifies the wallet and configuration fingerprints, regenerates the matched candidate from the immutable snapshot, and confirms the address with ethers before writing the password to terminal stdout. No plaintext result file is created. Run it in a private terminal and do not redirect, pipe, log, or paste its output.
-
-## Runtime data and permissions
-
-The default runtime root is:
+Runtime data defaults to `~/Library/Application Support/Ethereum Recovery/`. Set `--runtime-dir` or `RECOVERY_DATA_DIR` to use another location. Runtime directories must be private (`0700`); files use `0600`.
 
 ```text
-~/Library/Application Support/Ethereum Recovery/
-```
-
-It contains the real `patterns.json`, a protected demo keystore, and per-job directories:
-
-```text
+last-setup.json                 # most recently prepared guided settings
+demo/demo-keystore.json         # generated demonstration wallet
 jobs/<jobId>/
-  manifest.json
-  patterns.json
-  candidate-index.bin
-  checkpoint.json
-  benchmark.json
-  recovery.lock
-  checkpoint.<timestamp>.<nonce>.json   # only after --fresh
+  manifest.json                # wallet/configuration fingerprints and counts
+  patterns.json                # immutable configuration snapshot
+  candidate-index.bin          # empty guided marker; integer indexes for legacy jobs
+  checkpoint.json              # counters, timing, state, and optional matched index
+  benchmark.json               # measured speed and chosen worker count
+  recovery.lock                # kernel-lock file
+  checkpoint.<timestamp>.<nonce>.json  # archived checkpoints after restart from zero
 ```
 
-Runtime directories are enforced as `0700` and files as `0600`. The index map stores integer raw indexes, not candidate strings. Checkpoints store counters, timing, state, and at most the matched unique index—never a candidate or password.
+Keep an independent backup of your keystore. Keep wallets, actual password hints, runtime files, and recovered passwords out of Git. The service binds only to `127.0.0.1`, with same-origin/session checks on mutations and sensitive setup reads, restricted Host headers, no caching, and a restrictive content security policy. Keep this service local; it is not intended for hosting, proxies, or tunnels. The application has no RPC, transaction signing, broadcasting, or asset-transfer path.
 
-The HTTP service accepts no wallet path, pattern values, mode changes, or reveal request. Mutations require the current per-process session token and same loopback Origin; Host validation, no-CORS behavior, CSP/frame denial, disabled caching, and sanitized API errors are enforced. Do not expose the port through a LAN bind, proxy, tunnel, container port, or cloud deployment.
+## Codebase map
 
-## Target-cost restart/soak gate
+| Location | Responsibility |
+| --- | --- |
+| `scripts/start.js`, `package.json`, `.nvmrc` | Single-command launcher, dependency bootstrap, and Node version requirement |
+| `server/index.js` | Loopback HTTP server, request protections, API routes, startup and shutdown |
+| `server/setupController.js` | Guided validation, preview, job preparation, saved setup, and UI operations |
+| `public/index.html`, `public/app.js`, `public/styles.css` | Buildless setup form, live dashboard, controls, and styling |
+| `server/recovery/guidedConfig.js` | Keyboard rules, exact counts, deduplicated word groups, and lazy indexed candidates |
+| `server/recovery/candidateGenerator.js` | Common candidate API and existing schema-v2 pattern generation |
+| `server/recovery/recoveryEngine.js`, `recoveryVerifierWorker.js` | Worker scheduling, contiguous progress, state transitions, speed, and ETA |
+| `server/recovery/walletVerifier.js` | Keystore validation, native scrypt/MAC checks, and final ethers confirmation |
+| `server/recovery/benchmark.js`, `benchmarkWorker.js` | Memory bounds and synchronized worker throughput measurements |
+| `server/recovery/jobStore.js`, `checkpoint.js`, `lockHolder.js` | Immutable jobs, compact plan persistence, atomic checkpoints, and per-job locks |
+| `server/runtime.js` | Private runtime directories, bounded file reads, fingerprints, and atomic writes |
+| `server/configInit.js`, `server/reveal.js` | Legacy configuration creation and verified terminal reveal |
+| `data/patterns.example.json`, `wallet/.gitkeep` | Sanitized example configuration and wallet directory placeholder |
+| `test/`, `test/fixtures/`, `scripts/test.js` | Generator, verifier, persistence, HTTP, lifecycle, and recovery tests using isolated fixtures |
 
-Before using the real wallet, exercise the production KDF cost with the included `N=262144, r=8, p=1` fixture while keeping test state isolated:
+Guided searches generate candidates on demand, without enumerating or storing the full search space. Counts remain exact up to JavaScript's safe integer limit, `9,007,199,254,740,991`. Only the bounded word combinations and layout metadata are held in memory. This makes large searches fast to prepare; the wallet's scrypt cost still determines verification speed.
+
+## Existing CLI workflows and validation
+
+Existing schema-v2 pattern JSON, job identities, checkpoints, and reveal commands remain supported. Legacy patterns retain the 10,000,000-raw-candidate bound and their deduplicated integer index maps.
 
 ```bash
-SOAK_ROOT="$(mktemp -d /tmp/ethereum-recovery-soak.XXXXXX)"
-chmod 700 "$SOAK_ROOT"
-cp test/fixtures/target-cost-v3.json "$SOAK_ROOT/wallet.json"
-chmod 600 "$SOAK_ROOT/wallet.json"
-RECOVERY_DATA_DIR="$SOAK_ROOT/runtime" npm run config:init
-RECOVERY_DATA_DIR="$SOAK_ROOT/runtime" caffeinate -i npm run real -- \
-  --wallet "$SOAK_ROOT/wallet.json" \
-  --workers auto
+npm run demo
+npm run config:init
+npm run real -- --wallet "/absolute/path/to/wallet.json" --workers auto
 ```
 
-Run the dashboard long enough to observe stable rate, temperature, memory pressure, and a periodic checkpoint. Record the job ID and committed index, then press `Ctrl-C`. Repeat the identical command, verify the same job ID and nondecreasing committed index, select **Resume**, and exercise Pause and Stop. For a complete found/reveal rehearsal, make a separate protected test-only pattern config whose final candidate is the fixture password documented by the tests (`Alpha1!`), pass it with `--patterns`, interrupt before that index, resume to `found`, and run:
+`config:init` creates a protected `patterns.json` in the runtime directory and refuses to overwrite an existing file. Pass `--patterns "/absolute/path/to/patterns.json"` to `npm run real` for a custom configuration. `npm run demo` retains the original sanitized pattern-file demo; the guided demo is available through `npm start`. Use `npm run dev` for dashboard development.
+
+To install the locked dependencies explicitly and run the full suite on the supported platform:
 
 ```bash
-RECOVERY_DATA_DIR="$SOAK_ROOT/runtime" npm run reveal -- \
-  --job "<fixtureJobId>" \
-  --wallet "$SOAK_ROOT/wallet.json"
+npm ci
+npm test
 ```
 
-Do not begin the real-wallet run until checkpoint restart, dashboard control, worker selection, and terminal reveal all behave as expected on this fixture.
+For the guided fixture lifecycle alone:
 
-## Operational boundaries
+```bash
+node --test test/setupFlow.test.js
+```
 
-- Keep the machine offline except when installing already-reviewed dependencies.
-- Never upload the wallet or patterns to GitHub, cloud storage, issue trackers, AI chats, or browser forms.
-- Do not use remote access, tunnels, or browser extensions during recovery.
-- After recovery, handle any asset migration separately with a trusted wallet workflow; this project deliberately contains no signing or broadcasting path.
+That integration suite covers preparation, controls, interrupted restart, saved restore, found/reveal, cleanup after errors, and compact plan tamper rejection. Tests use temporary runtime directories; the test runner checks that application runtime data remains unchanged. The production-cost fixture in `test/fixtures/target-cost-v3.json` is also available for a manual long-running rehearsal on the intended machine.

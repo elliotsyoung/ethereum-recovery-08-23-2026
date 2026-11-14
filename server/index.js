@@ -4,6 +4,7 @@ const { parseArgs } = require('node:util');
 const express = require('express');
 const { prepareJob, releaseJobLock } = require('./recovery/jobStore');
 const { RecoveryEngine, RecoveryStateError } = require('./recovery/recoveryEngine');
+const { SetupController, SetupError } = require('./setupController');
 
 const PUBLIC_DIR = path.resolve(__dirname, '../public');
 const DEFAULT_PORT = 3000;
@@ -60,7 +61,7 @@ function createApp(engine, { sessionToken = crypto.randomBytes(32).toString('bas
     next();
   });
 
-  app.use(express.json({ limit: '1kb', type: 'application/json' }));
+  app.use(express.json({ limit: '64kb', type: 'application/json' }));
 
   app.get('/api/session', (req, res) => {
     res.json({ token: sessionToken });
@@ -70,14 +71,21 @@ function createApp(engine, { sessionToken = crypto.randomBytes(32).toString('bas
     res.json(engine.getStatus());
   });
 
-  function operation(handler) {
+  app.get('/api/setup', (req, res) => {
+    res.json(typeof engine.getSetup === 'function' ? engine.getSetup() : { enabled: false });
+  });
+
+  function operation(handler, responseKey = 'status') {
     return async (req, res) => {
       try {
-        const status = await handler();
-        res.json({ ok: true, status });
+        const result = await handler(req);
+        res.json({ ok: true, [responseKey]: result });
       } catch (error) {
-        if (error instanceof RecoveryStateError) {
-          res.status(error.statusCode).json({ ok: false, errorCode: error.code });
+        if (error instanceof RecoveryStateError || error instanceof SetupError) {
+          res.status(error.statusCode).json({
+            ok: false, errorCode: error.code,
+            ...(error instanceof SetupError ? { message: error.message } : {})
+          });
           return;
         }
         res.status(500).json({ ok: false, errorCode: 'OPERATION_FAILED' });
@@ -89,7 +97,18 @@ function createApp(engine, { sessionToken = crypto.randomBytes(32).toString('bas
   app.post('/api/recovery/pause', operation(() => engine.pause()));
   app.post('/api/recovery/resume', operation(() => engine.resume()));
   app.post('/api/recovery/stop', operation(() => engine.stop()));
-  app.post('/api/benchmark', operation(() => engine.calibrate()));
+  app.post('/api/benchmark', operation(async () => {
+    await engine.calibrate();
+    return engine.getStatus();
+  }));
+
+  if (typeof engine.getSetup === 'function') {
+    app.post('/api/setup/preview', operation((req) => engine.preview(req.body), 'preview'));
+    app.post('/api/setup/current', operation(() => engine.currentSetup(), 'selection'));
+    app.post('/api/setup/configure', operation((req) => engine.configure(req.body)));
+    app.post('/api/setup/restore', operation(() => engine.restore()));
+    app.post('/api/setup/restart', operation(() => engine.restart()));
+  }
 
   app.use(express.static(PUBLIC_DIR, { etag: false, lastModified: false }));
   app.use('/api', (req, res) => {
@@ -120,7 +139,8 @@ function parseServerOptions(
       workers: { type: 'string', default: 'auto' },
       fresh: { type: 'boolean', default: false },
       port: { type: 'string', default: String(process.env.PORT || DEFAULT_PORT) },
-      'runtime-dir': { type: 'string' }
+      'runtime-dir': { type: 'string' },
+      setup: { type: 'boolean', default: false }
     }
   });
   const mode = String(processMode).toUpperCase();
@@ -130,7 +150,7 @@ function parseServerOptions(
   if (!['auto', '1', '2', '3', '4'].includes(values.workers)) {
     throw new Error('WORKER_SETTING_INVALID');
   }
-  if (mode === 'REAL' && (!values.wallet || !path.isAbsolute(values.wallet))) {
+  if (!values.setup && mode === 'REAL' && (!values.wallet || !path.isAbsolute(values.wallet))) {
     throw new Error('REAL_WALLET_ABSOLUTE_PATH_REQUIRED');
   }
   if (mode === 'DEMO' && (values.wallet || values.patterns)) {
@@ -139,18 +159,24 @@ function parseServerOptions(
   if (values.patterns && !path.isAbsolute(values.patterns)) {
     throw new Error('PATTERNS_PATH_MUST_BE_ABSOLUTE');
   }
+  if (values.setup && (values.wallet || values.patterns)) {
+    throw new Error('SETUP_INPUTS_USE_DASHBOARD');
+  }
   return {
+    setup: values.setup,
     mode,
     port,
     walletPath: values.wallet,
     patternsPath: values.patterns,
     workerSetting: values.workers,
+    workerSettingExplicit: argv.some((value) => value === '--workers' || value.startsWith('--workers=')),
     fresh: values.fresh,
     runtimeDir: values['runtime-dir']
   };
 }
 
 async function startServer(options, { onLockLost = null, onServerError = null } = {}) {
+  if (options.setup) return startSetupServer(options, { onLockLost, onServerError });
   const job = await prepareJob({ ...options, acquireLock: true });
   let engine;
   let server;
@@ -267,6 +293,47 @@ async function startServer(options, { onLockLost = null, onServerError = null } 
     } catch {
       // Preserve the startup error after stopping workers and releasing ownership.
     }
+    throw error;
+  }
+}
+
+async function startSetupServer(options, { onLockLost = null, onServerError = null } = {}) {
+  let server;
+  let fatalError = null;
+  let shutdownPromise = null;
+  const controller = new SetupController(options, {
+    onFatal: (error) => {
+      fatalError = error;
+      try { if (onLockLost) onLockLost(error); } catch { /* Shutdown is mandatory. */ }
+      void shutdown().catch(() => {});
+    }
+  });
+  const app = createApp(controller);
+  const shutdown = () => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      let closeError;
+      try { await controller.shutdown(); } catch (error) { closeError = error; }
+      if (server?.listening) await new Promise((resolve) => server.close(resolve));
+      if (fatalError || closeError) throw fatalError || closeError;
+    })();
+    return shutdownPromise;
+  };
+  try {
+    server = await new Promise((resolve, reject) => {
+      const candidate = app.listen(options.port, '127.0.0.1');
+      candidate.once('error', reject);
+      candidate.once('listening', () => { candidate.off('error', reject); resolve(candidate); });
+    });
+    server.on('error', () => {
+      fatalError ||= new Error('HTTP_SERVER_FAILURE');
+      try { if (onServerError) onServerError(fatalError); } catch { /* Shutdown is mandatory. */ }
+      void shutdown().catch(() => {});
+    });
+    process.stdout.write(`Ethereum Recovery — local setup\nDashboard: ${loopbackOrigin(server.address().port)}\n`);
+    return { app, controller, server, shutdown };
+  } catch (error) {
+    await shutdown().catch(() => {});
     throw error;
   }
 }

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
+const { performance } = require('node:perf_hooks');
 const { loadCheckpoint, saveCheckpoint } = require('../server/recovery/checkpoint');
 const { prepareJob } = require('../server/recovery/jobStore');
 const {
@@ -286,4 +287,91 @@ test('out-of-order work advances only the contiguous frontier and crash replay n
   const stopped = await replayEngine.stop();
   assert.equal(stopped.state, 'stopped');
   assert.equal(loadCheckpoint(replayJob.paths.checkpointPath, replayJob.jobId).nextCandidateIndex, 2);
+});
+
+test('live status separates checked attempts from restart-safe coverage and estimates from current speed', async (t) => {
+  const { job } = await makeJob(t, ['wrong-0', 'wrong-1', 'wrong-2', 'wrong-3']);
+  const engine = new RecoveryEngine(job, { workerSetting: '2' });
+  const workers = installFakeWorkers(engine);
+  t.after(() => engine.shutdown());
+  engine.benchmark = { guessesPerSecond: 10 };
+
+  const ready = engine.getStatus();
+  assert.equal(ready.remainingCandidateCount, 4);
+  assert.equal(ready.estimateSource, 'benchmark');
+  assert.equal(ready.estimatedSecondsRemaining, 0.4);
+  await engine.start();
+  engine.segmentStartedAt = performance.now() - 1000;
+  engine._onWorkerMessage(workers[1], { type: 'result', index: 1, matched: false });
+  const outOfOrder = engine.getStatus();
+  assert.equal(outOfOrder.totalVerified, 1);
+  assert.equal(outOfOrder.searchedCandidateCount, 0);
+  assert.equal(outOfOrder.uncommittedVerifiedCount, 1);
+  assert.equal(outOfOrder.remainingCandidateCount, 4);
+  assert.equal(outOfOrder.estimateSource, 'live');
+  assert.ok(outOfOrder.estimateRate > 0 && outOfOrder.estimateRate <= 1);
+  assert.equal(outOfOrder.estimatedTotalSeconds,
+    outOfOrder.activeElapsedMs / 1000 + outOfOrder.estimatedSecondsRemaining);
+
+  engine._onWorkerMessage(workers[0], { type: 'result', index: 0, matched: false });
+  const contiguous = engine.getStatus();
+  assert.equal(contiguous.searchedCandidateCount, 2);
+  assert.equal(contiguous.remainingCandidateCount, 2);
+  assert.equal(contiguous.completionPercent, 50);
+  assert.equal(contiguous.uncommittedVerifiedCount, 0);
+  const paused = await engine.pause();
+  assert.equal(paused.guessesPerSecond, 0);
+  assert.equal(paused.estimateSource, 'average');
+  assert.ok(paused.estimatedSecondsRemaining > 0);
+});
+
+test('a stalled search does not replace zero observed speed with an optimistic benchmark ETA', async (t) => {
+  const { job } = await makeJob(t, ['wrong-0', 'wrong-1']);
+  const engine = new RecoveryEngine(job, { workerSetting: '1' });
+  installFakeWorkers(engine, 1);
+  t.after(() => engine.shutdown());
+  engine.benchmark = { guessesPerSecond: 500 };
+  await engine.start();
+  engine.segmentStartedAt = performance.now() - 31_000;
+  const stalled = engine.getStatus();
+  assert.equal(stalled.guessesPerSecond, 0);
+  assert.equal(stalled.estimateSource, 'live');
+  assert.equal(stalled.estimateRate, 0);
+  assert.equal(stalled.estimatedSecondsRemaining, null);
+  assert.equal(stalled.estimatedTotalSeconds, null);
+});
+
+test('active runtime uses a monotonic clock and excludes paused time', async (t) => {
+  const { job } = await makeJob(t, ['wrong-0', 'wrong-1']);
+  const engine = new RecoveryEngine(job, { workerSetting: '1' });
+  installFakeWorkers(engine, 1);
+  t.after(() => engine.shutdown());
+  await engine.start();
+  engine.segmentStartedAt = performance.now() - 1000;
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 86_400_000;
+  try {
+    const status = engine.getStatus();
+    assert.ok(status.activeElapsedMs >= 1000 && status.activeElapsedMs < 2000);
+  } finally {
+    Date.now = originalNow;
+  }
+  const paused = await engine.pause();
+  await delay(20);
+  assert.equal(engine.getStatus().activeElapsedMs, paused.activeElapsedMs);
+});
+
+test('a found candidate beyond the frontier does not claim untested candidates were searched', async (t) => {
+  const { job } = await makeJob(t, ['wrong-0', 'Alpha1!', 'wrong-2', 'wrong-3']);
+  const engine = new RecoveryEngine(job, { workerSetting: '2' });
+  const workers = installFakeWorkers(engine);
+  t.after(() => engine.shutdown());
+  await engine.start();
+  engine._onWorkerMessage(workers[1], { type: 'result', index: 1, matched: true });
+  const found = await waitForState(engine, 'found');
+  assert.equal(found.totalVerified, 1);
+  assert.equal(found.searchedCandidateCount, 1);
+  assert.equal(found.remainingCandidateCount, 3);
+  assert.equal(found.completionPercent, 25);
+  assert.equal(found.estimatedSecondsRemaining, 0);
 });

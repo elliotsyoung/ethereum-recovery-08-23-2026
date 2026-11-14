@@ -316,9 +316,13 @@ function validateManifest(manifest, expectedJobId = null) {
   if (manifest.kdf.dklen !== 32) {
     throw new Error('JOB_MANIFEST_INVALID');
   }
-  assertSafeCount(manifest.rawCandidateCount, 'JOB_RAW_COUNT');
-  assertSafeCount(manifest.uniqueCandidateCount, 'JOB_UNIQUE_COUNT');
-  assertSafeCount(manifest.duplicatesRemoved, 'JOB_DUPLICATE_COUNT');
+  if (manifest.planKind !== undefined && manifest.planKind !== 'guided') {
+    throw new Error('JOB_MANIFEST_INVALID');
+  }
+  const maximum = manifest.planKind === 'guided' ? Number.MAX_SAFE_INTEGER : MAX_RAW_CANDIDATES;
+  assertSafeCount(manifest.rawCandidateCount, 'JOB_RAW_COUNT', maximum);
+  assertSafeCount(manifest.uniqueCandidateCount, 'JOB_UNIQUE_COUNT', maximum);
+  assertSafeCount(manifest.duplicatesRemoved, 'JOB_DUPLICATE_COUNT', maximum);
   if (manifest.uniqueCandidateCount > manifest.rawCandidateCount
       || manifest.duplicatesRemoved !== manifest.rawCandidateCount - manifest.uniqueCandidateCount
       || typeof manifest.createdAt !== 'string'
@@ -359,6 +363,23 @@ function loadCandidatePlan(paths, manifest, config) {
       || calculateCandidateSpace(config) !== manifest.rawCandidateCount) {
     throw new Error('CANDIDATE_INDEX_MAP_INVALID');
   }
+  // Guided plans address candidates directly. The empty marker remains hashed
+  // and permission-checked just like legacy index maps, without O(search size) storage.
+  if (manifest.planKind === 'guided') {
+    const marker = readPrivateFile(paths.indexMapPath, {
+      maxBytes: 0,
+      label: 'CANDIDATE_INDEX_MAP'
+    });
+    const plan = compileCandidatePlan(config);
+    if (plan.kind !== 'guided' || marker.length !== 0
+        || sha256Hex(marker) !== manifest.indexMapHash
+        || plan.uniqueCount !== manifest.uniqueCandidateCount
+        || plan.duplicateCount !== manifest.duplicatesRemoved) {
+      throw new Error('CANDIDATE_INDEX_MAP_INVALID');
+    }
+    return plan;
+  }
+  if (config.guided) throw new Error('CANDIDATE_INDEX_MAP_INVALID');
   const expectedBytes = manifest.uniqueCandidateCount * 4;
   assertPrivateFile(paths.indexMapPath, {
     maxBytes: expectedBytes,
@@ -534,7 +555,8 @@ async function prepareJob({
     } else {
       patternConfig = suppliedConfig;
       candidatePlan = precompiledPlan || compileCandidatePlan(patternConfig);
-      const encodedIndices = encodeRawIndices(candidatePlan.rawIndices);
+      const encodedIndices = candidatePlan.kind === 'guided'
+        ? Buffer.alloc(0) : encodeRawIndices(candidatePlan.rawIndices);
       manifest = {
         ...identity,
         jobId,
@@ -552,6 +574,7 @@ async function prepareJob({
         uniqueCandidateCount: candidatePlan.uniqueCount,
         duplicatesRemoved: candidatePlan.duplicateCount,
         indexMapHash: sha256Hex(encodedIndices),
+        ...(candidatePlan.kind === 'guided' ? { planKind: 'guided' } : {}),
         createdAt: new Date().toISOString()
       };
       assertJobLockOwned(lock);

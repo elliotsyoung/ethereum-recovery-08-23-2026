@@ -198,7 +198,9 @@ test('server and reveal CLI parsing keep mode fixed at process startup', () => {
   );
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf8'));
-  assert.match(packageJson.scripts.start, /RECOVERY_MODE=DEMO/);
+  assert.equal(parseServerOptions(['--setup'], 'DEMO').setup, true);
+  assert.equal(packageJson.scripts.start, 'node scripts/start.js');
+  assert.match(packageJson.scripts.demo, /RECOVERY_MODE=DEMO/);
   assert.match(packageJson.scripts.real, /RECOVERY_MODE=REAL/);
 });
 
