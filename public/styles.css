@@ -142,6 +142,11 @@ footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: c
 .restore-row p { color: #c4d6ba; font-size: .78rem; }
 .restore-row button { flex: 0 0 auto; }
 .optional { color: var(--muted); font-weight: 400; }
+.preset-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; margin-bottom: 20px; background: #1d2630; border: 1px solid #3a4b5c; border-radius: 7px; }
+.preset-banner .field-help { margin: 2px 0 0; }
+.preset-banner button { flex: 0 0 auto; }
+.checkbox-inline { display: flex; gap: 7px; align-items: center; color: var(--muted); font-weight: 400; }
+@media (max-width: 560px) { .preset-banner { flex-direction: column; align-items: stretch; } }
 @media (max-width: 600px) { .restore-row { flex-direction: column; align-items: flex-start; } }
 
 .restart-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }

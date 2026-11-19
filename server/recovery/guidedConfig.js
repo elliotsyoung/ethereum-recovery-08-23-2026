@@ -1,23 +1,34 @@
 // The guided search is indexed by disjoint layouts and segment lengths. Only word
 // pairs are deduplicated in memory; numeric and symbol products stay lazy.
 const SHIFT_SYMBOLS = '!@#$%^&*()_+{}|:"<>?~';
+const NUMBER_ROW_SYMBOLS = '!@#$%^&*()';
 const MAX_GUIDED_CANDIDATES = Number.MAX_SAFE_INTEGER;
 const MAX_WORDS = 200;
+const MAX_WORD_LETTERS = 32;
+const MAX_DIGIT_VALUE = 999_999_999_999; // 12 digits, the digit-count ceiling.
 const STYLE_NAMES = new Set(['title', 'lower', 'upper', 'none']);
 const LAYOUT_NAMES = new Set(['suffix', 'between', 'split']);
 const RULE_KEYS = new Set([
   'word1', 'word2', 'minLength', 'maxLength', 'minDigits', 'maxDigits',
   'minSymbols', 'maxSymbols', 'symbols', 'caseStyles', 'layouts',
-  'digitMode', 'symbolMode'
+  'digitMode', 'symbolMode',
+  // Additional constraints that shrink the search space. Each defaults to a
+  // no-op, so an unset value never narrows coverage on its own.
+  'word1MinLen', 'word1MaxLen', 'word2MinLen', 'word2MaxLen',
+  'digitMin', 'digitMax', 'requireDistinctWords', 'sharedEnding'
 ]);
 
 function getGuidedDefaults() {
   return {
-    word1: [], word2: [], minLength: 8, maxLength: 24,
-    minDigits: 2, maxDigits: 2, minSymbols: 2, maxSymbols: 4,
-    symbols: SHIFT_SYMBOLS, caseStyles: ['title', 'lower'],
-    layouts: ['suffix', 'between', 'split'],
-    digitMode: 'repeated', symbolMode: 'repeated'
+    word1: [], word2: [], minLength: 11, maxLength: 20,
+    minDigits: 2, maxDigits: 2, minSymbols: 2, maxSymbols: 2,
+    symbols: NUMBER_ROW_SYMBOLS, caseStyles: ['title'],
+    layouts: ['suffix'],
+    digitMode: 'all', symbolMode: 'all',
+    word1MinLen: 1, word1MaxLen: MAX_WORD_LETTERS,
+    word2MinLen: 1, word2MaxLen: MAX_WORD_LETTERS,
+    digitMin: 0, digitMax: null,
+    requireDistinctWords: false, sharedEnding: 0
   };
 }
 
@@ -33,6 +44,13 @@ function isGuidedConfig(config) {
 function integer(value, key, min, max) {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new TypeError(`${key} must be a whole number from ${min} to ${max}.`);
+  }
+  return value;
+}
+
+function boolean(value, key) {
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${key} must be true or false.`);
   }
   return value;
 }
@@ -74,12 +92,23 @@ function normalizeRules(input) {
   for (const [minKey, maxKey, min, max] of [
     ['minLength', 'maxLength', 2, 64],
     ['minDigits', 'maxDigits', 0, 12],
-    ['minSymbols', 'maxSymbols', 0, 12]
+    ['minSymbols', 'maxSymbols', 0, 12],
+    ['word1MinLen', 'word1MaxLen', 1, MAX_WORD_LETTERS],
+    ['word2MinLen', 'word2MaxLen', 1, MAX_WORD_LETTERS]
   ]) {
     integer(rules[minKey], minKey, min, max);
     integer(rules[maxKey], maxKey, min, max);
     if (rules[minKey] > rules[maxKey]) throw new TypeError(`${minKey} cannot exceed ${maxKey}.`);
   }
+  integer(rules.digitMin, 'digitMin', 0, MAX_DIGIT_VALUE);
+  if (rules.digitMax === null || rules.digitMax === undefined) {
+    rules.digitMax = null;
+  } else {
+    integer(rules.digitMax, 'digitMax', 0, MAX_DIGIT_VALUE);
+    if (rules.digitMin > rules.digitMax) throw new TypeError('digitMin cannot exceed digitMax.');
+  }
+  boolean(rules.requireDistinctWords, 'requireDistinctWords');
+  integer(rules.sharedEnding, 'sharedEnding', 0, MAX_WORD_LETTERS);
   if (typeof rules.symbols !== 'string'
       || [...rules.symbols].some((symbol) => !SHIFT_SYMBOLS.includes(symbol))) {
     throw new TypeError('Symbols must come from the shifted US English keyboard keys.');
@@ -113,14 +142,29 @@ function styleWord(word, style) {
   return word[0].toUpperCase() + word.slice(1).toLowerCase();
 }
 
+function pairAllowed(first, second, rules) {
+  if (rules.requireDistinctWords && first.toLowerCase() === second.toLowerCase()) return false;
+  if (rules.sharedEnding > 0) {
+    const tail = rules.sharedEnding;
+    if (first.length < tail || second.length < tail) return false;
+    if (first.slice(-tail).toLowerCase() !== second.slice(-tail).toLowerCase()) return false;
+    // A shared ending is only a rhyme when the words start differently.
+    if (first[0].toLowerCase() === second[0].toLowerCase()) return false;
+  }
+  return true;
+}
+
 function wordGroups(rules, concatenate) {
   const seen = new Set();
   const groups = new Map();
   for (const style of rules.caseStyles) {
-    const firstWords = [...new Set(rules.word1.map((word) => styleWord(word, style)))];
-    const secondWords = [...new Set(rules.word2.map((word) => styleWord(word, style)))];
+    const firstWords = [...new Set(rules.word1.map((word) => styleWord(word, style)))]
+      .filter((word) => word.length >= rules.word1MinLen && word.length <= rules.word1MaxLen);
+    const secondWords = [...new Set(rules.word2.map((word) => styleWord(word, style)))]
+      .filter((word) => word.length >= rules.word2MinLen && word.length <= rules.word2MaxLen);
     for (const second of secondWords) {
       for (const first of firstWords) {
+        if (!pairAllowed(first, second, rules)) continue;
         const key = concatenate ? first + second : `${first}\0${second}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -135,7 +179,33 @@ function wordGroups(rules, concatenate) {
   return groups;
 }
 
-function segmentCount(length, alphabet, mode) {
+// A contiguous run of digits, optionally bounded to an integer value range.
+// Returns the number of allowed values and the string at each local index.
+function digitGroup(length, mode, digitMin, digitMax) {
+  if (length === 0) return { length: 0, count: 1, mode: 'all', start: 0 };
+  const maxForLength = 10 ** length - 1;
+  const high = digitMax === null ? maxForLength : Math.min(digitMax, maxForLength);
+  const low = Math.max(0, digitMin);
+  if (mode === 'all') {
+    return { length, count: high >= low ? high - low + 1 : 0, mode: 'all', start: low };
+  }
+  // Repeated mode emits one digit repeated across the run (00, 777, ...).
+  const repunit = Number('1'.repeat(length));
+  const digits = [];
+  for (let digit = 0; digit <= 9; digit += 1) {
+    const value = digit * repunit;
+    if (value >= low && value <= high) digits.push(digit);
+  }
+  return { length, count: digits.length, mode: 'repeated', digits };
+}
+
+function digitSegmentAt(group, index) {
+  if (group.length === 0) return '';
+  if (group.mode === 'all') return String(group.start + index).padStart(group.length, '0');
+  return String(group.digits[index]).repeat(group.length);
+}
+
+function symbolCount(length, alphabet, mode) {
   if (length === 0) return 1n;
   return mode === 'repeated' ? BigInt(alphabet.length) : BigInt(alphabet.length) ** BigInt(length);
 }
@@ -157,20 +227,20 @@ function buildGuidedModel(config) {
         : [layout === 'between' ? digitLength : 0];
       for (const digitsA of splits) {
         const digitsB = digitLength - digitsA;
-        const countA = segmentCount(digitsA, '0123456789', rules.digitMode);
-        const countB = segmentCount(digitsB, '0123456789', rules.digitMode);
+        const groupA = digitGroup(digitsA, rules.digitMode, rules.digitMin, rules.digitMax);
+        const groupB = digitGroup(digitsB, rules.digitMode, rules.digitMin, rules.digitMax);
+        if (groupA.count === 0 || groupB.count === 0) continue;
         for (let symbolLength = rules.minSymbols; symbolLength <= rules.maxSymbols; symbolLength += 1) {
-          const countSymbols = segmentCount(symbolLength, rules.symbols, rules.symbolMode);
+          const countSymbols = symbolCount(symbolLength, rules.symbols, rules.symbolMode);
           for (const [wordLength, pairs] of groups) {
             const length = wordLength + digitLength + symbolLength;
             if (length < rules.minLength || length > rules.maxLength) continue;
-            const size = BigInt(pairs.length) * countA * countB * countSymbols;
+            const size = BigInt(pairs.length) * BigInt(groupA.count) * BigInt(groupB.count) * countSymbols;
             if (total + size > BigInt(MAX_GUIDED_CANDIDATES)) {
               throw new RangeError('Search exceeds the exact counting limit (9 quadrillion candidates). Narrow the words, lengths, symbols, or segment choices.');
             }
             blocks.push({
-              layout, pairs, digitsA, digitsB, symbolLength,
-              countA: Number(countA), countB: Number(countB),
+              layout, pairs, groupA, groupB, symbolLength,
               offset: Number(total), size: Number(size)
             });
             total += size;
@@ -179,7 +249,7 @@ function buildGuidedModel(config) {
       }
     }
   }
-  if (total === 0n) throw new RangeError('No passwords satisfy these settings. Widen the length range or adjust the digit, symbol, or layout choices.');
+  if (total === 0n) throw new RangeError('No passwords satisfy these settings. Widen the length range or adjust the digit, symbol, word-length, or layout choices.');
   return { config: normalized, blocks, rawCount: Number(total) };
 }
 
@@ -217,10 +287,10 @@ function guidedCandidateFromModel(model, index) {
   let local = index - block.offset;
   const pair = block.pairs[local % block.pairs.length];
   local = Math.floor(local / block.pairs.length);
-  const digitsA = segmentAt(local % block.countA, block.digitsA, '0123456789', rules.digitMode);
-  local = Math.floor(local / block.countA);
-  const digitsB = segmentAt(local % block.countB, block.digitsB, '0123456789', rules.digitMode);
-  local = Math.floor(local / block.countB);
+  const digitsA = digitSegmentAt(block.groupA, local % block.groupA.count);
+  local = Math.floor(local / block.groupA.count);
+  const digitsB = digitSegmentAt(block.groupB, local % block.groupB.count);
+  local = Math.floor(local / block.groupB.count);
   const symbols = segmentAt(local, block.symbolLength, rules.symbols, rules.symbolMode);
   return block.layout === 'suffix'
     ? pair + digitsB + symbols
@@ -244,7 +314,7 @@ function summarizeGuidedConfig(config) {
 }
 
 module.exports = {
-  SHIFT_SYMBOLS, MAX_GUIDED_CANDIDATES, MAX_WORDS,
+  SHIFT_SYMBOLS, NUMBER_ROW_SYMBOLS, MAX_GUIDED_CANDIDATES, MAX_WORDS,
   getGuidedDefaults, isGuidedConfig, buildGuidedConfig, validateGuidedConfig,
   buildGuidedModel, guidedCandidateFromModel, guidedEntryForIndex, summarizeGuidedConfig
 };

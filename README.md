@@ -31,8 +31,10 @@ caffeinate -i npm start
 The form asks for three groups of information:
 
 1. **Wallet:** the local keystore path, or demo mode.
-2. **Words and length:** likely first and second words, plus minimum and maximum password length. Supply up to 200 distinct words per list, separated by spaces, commas, or newlines. Leave the second list blank to reuse the first list and try every pairing, including both orders.
-3. **Digits and symbols:** minimum and maximum counts, plus the possible symbols. Capitalization, placement, and combination modes are available under the refinement controls.
+2. **Words and length:** likely first and second words, plus minimum and maximum password length, and an optional per-word letter-count limit. Supply up to 200 distinct words per list, separated by spaces, commas, or newlines. Leave the second list blank to reuse the first list and try every pairing, including both orders.
+3. **Digits and symbols:** minimum and maximum counts, a symbol-set preset and the possible symbols, and an optional value range for the digit block. Capitalization, placement, combination modes, and word-pairing filters are available under the refinement controls.
+
+Select **Match the example structure** at the top of the form to set every control at once to the known shape — two Title-case words, then exactly two digits and two number-row symbols at the end — without touching your word lists.
 
 Words contain English keyboard letters `A–Z` and `a–z`, with 1–32 letters per word. The total password length can be 2–64 characters. Digits are `0–9`; symbols are the shifted US English keyboard characters:
 
@@ -40,7 +42,16 @@ Words contain English keyboard letters `A–Z` and `a–z`, with 1–32 letters 
 ! @ # $ % ^ & * ( ) _ + { } | : " < > ? ~
 ```
 
-Digits and symbols both count toward the combined nonletter total. Defaults are 8–24 total characters, exactly **two digits**, and **two to four symbols**: **four to six nonletters combined**. This starts with a two-digit split; adjust the separate ranges to try other splits or larger totals. Each count can range from 0 to 12.
+Digits and symbols both count toward the combined nonletter total. Defaults match the observed password shape: **11–20 total characters**, exactly **two digits**, exactly **two symbols** drawn from the **number row** (`! @ # $ % ^ & * ( )`), **Title case**, the **suffix** layout, and **all-combinations** digit and symbol modes, so non-repeating runs such as `58` or `!#` are included. Each count can still range from 0 to 12, and the symbol set can be widened to all shift symbols; loosen any control you are unsure about.
+
+### Narrowing the search
+
+The word-pair list is the largest part of the search, so the controls that prune it help the most. All of the following default to a no-op, so they only ever narrow the search when you set them:
+
+- **Per-word letter count:** cap the letters in the first and/or second word (the example passwords use 4–6 letters each). This removes word pairs before any digit or symbol work.
+- **Digit value range:** if you remember the number itself (for example, that it was in the 50s–70s), bound the digit block to that range. The bound applies to each contiguous run of digits.
+- **Symbol set preset:** start from the number row (`! @ # $ % ^ & * ( )`), the shifted `1`–`5` keys (`! @ # $ %`), or all shift symbols, then edit the list by hand.
+- **Word pairing (refinement controls):** require the two words to differ, or keep only pairs that *rhyme* — sharing their last 2–4 letters while starting with different letters, like `Picky`/`Ricky` or `Whammy`/`Shammy`. Use these only when you are confident, as they discard many pairs.
 
 **Repeated** mode searches one repeated character per group: `22`, `777`, `!!`, or `####`. **All combinations** also covers mixed groups such as `27` and `!?`, including leading zeroes for numbers. Repeated digits apply separately to each group in the split layout, so its two groups can differ.
 

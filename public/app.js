@@ -3,11 +3,16 @@
 const POLL_INTERVAL_MS = 1000;
 const BACKGROUND_POLL_INTERVAL_MS = 3000;
 const DEFAULT_SYMBOLS = '!@#$%^&*()_+{}|:"<>?~';
+const NUMBER_ROW_SYMBOLS = '!@#$%^&*()';
+const SHIFT_15_SYMBOLS = '!@#$%';
+const SYMBOL_PRESETS = { numberRow: NUMBER_ROW_SYMBOLS, shift15: SHIFT_15_SYMBOLS, all: DEFAULT_SYMBOLS };
 const DEFAULT_RULES = {
-  word1: [], word2: [], minLength: 8, maxLength: 24,
-  minDigits: 2, maxDigits: 2, minSymbols: 2, maxSymbols: 4,
-  symbols: DEFAULT_SYMBOLS, caseStyles: ['title', 'lower'],
-  layouts: ['suffix', 'between', 'split'], digitMode: 'repeated', symbolMode: 'repeated'
+  word1: [], word2: [], minLength: 11, maxLength: 20,
+  minDigits: 2, maxDigits: 2, minSymbols: 2, maxSymbols: 2,
+  symbols: NUMBER_ROW_SYMBOLS, caseStyles: ['title'],
+  layouts: ['suffix'], digitMode: 'all', symbolMode: 'all',
+  word1MinLen: 1, word1MaxLen: 32, word2MinLen: 1, word2MaxLen: 32,
+  digitMin: 0, digitMax: null, requireDistinctWords: false, sharedEnding: 0
 };
 const LAYOUTS = [
   ['suffix', 'Word + Word + digits + symbols'],
@@ -27,6 +32,9 @@ const els = Object.fromEntries([
   'firstWordsInput', 'secondWordsInput', 'minLengthInput', 'maxLengthInput',
   'minDigitsInput', 'maxDigitsInput', 'minSymbolsInput', 'maxSymbolsInput',
   'symbolsInput', 'digitModeInput', 'symbolModeInput', 'caseOptions', 'layoutOptions',
+  'word1MinLenInput', 'word1MaxLenInput', 'word2MinLenInput', 'word2MaxLenInput',
+  'digitMinInput', 'digitMaxInput', 'symbolPresetInput', 'requireDistinctInput',
+  'sharedEndingInput', 'exampleStructureBtn',
   'previewPanel', 'previewCount', 'previewDetails', 'previewWarnings', 'previewBtn',
   'configureBtn', 'setupHint', 'progressPanel', 'progressHeading', 'readinessBadge',
   'resultBanner', 'verifiedValue', 'remainingValue', 'completeValue', 'uniqueTotalValue',
@@ -151,13 +159,35 @@ function renderLayouts(selected) {
     element.append(input, document.createTextNode(label)); els.layoutOptions.append(element);
   }
 }
+function symbolPresetFor(symbols) {
+  const normalized = [...new Set(String(symbols || ''))].sort().join('');
+  for (const [name, value] of Object.entries(SYMBOL_PRESETS)) {
+    if ([...value].sort().join('') === normalized) return name;
+  }
+  return 'custom';
+}
+function syncSymbolPreset(symbols) { els.symbolPresetInput.value = symbolPresetFor(symbols); }
+function applyExampleStructure() {
+  els.minLengthInput.value = 11; els.maxLengthInput.value = 20;
+  els.minDigitsInput.value = 2; els.maxDigitsInput.value = 2;
+  els.minSymbolsInput.value = 2; els.maxSymbolsInput.value = 2;
+  els.digitModeInput.value = 'all'; els.symbolModeInput.value = 'all';
+  els.digitMinInput.value = 0; els.digitMaxInput.value = '';
+  els.symbolsInput.value = NUMBER_ROW_SYMBOLS; els.symbolPresetInput.value = 'numberRow';
+  for (const input of els.caseOptions.querySelectorAll('input')) input.checked = input.value === 'title';
+  renderLayouts(['suffix']);
+}
 function applyDefaults(defaults = {}) {
   const rules = { ...DEFAULT_RULES, ...defaults.rules };
   els.modeInput.value = defaults.mode === 'DEMO' ? 'DEMO' : 'REAL';
   els.walletInput.value = defaults.walletPath || '';
   const wordText = (value) => Array.isArray(value) ? value.join('\n') : String(value || '');
   els.firstWordsInput.value = wordText(rules.word1); els.secondWordsInput.value = wordText(rules.word2);
-  for (const field of ['minLength', 'maxLength', 'minDigits', 'maxDigits', 'minSymbols', 'maxSymbols', 'symbols', 'digitMode', 'symbolMode']) els[`${field}Input`].value = rules[field];
+  for (const field of ['minLength', 'maxLength', 'minDigits', 'maxDigits', 'minSymbols', 'maxSymbols', 'symbols', 'digitMode', 'symbolMode', 'word1MinLen', 'word1MaxLen', 'word2MinLen', 'word2MaxLen', 'digitMin']) els[`${field}Input`].value = rules[field];
+  els.digitMaxInput.value = rules.digitMax === null || rules.digitMax === undefined ? '' : rules.digitMax;
+  els.requireDistinctInput.checked = Boolean(rules.requireDistinctWords);
+  els.sharedEndingInput.value = String(rules.sharedEnding || 0);
+  syncSymbolPreset(rules.symbols);
   for (const input of els.caseOptions.querySelectorAll('input')) input.checked = rules.caseStyles.includes(input.value);
   renderLayouts(rules.layouts); renderMode();
 }
@@ -173,18 +203,23 @@ function readSetup() {
     symbols: els.symbolsInput.value,
     caseStyles: [...els.caseOptions.querySelectorAll('input:checked')].map((input) => input.value),
     layouts: [...els.layoutOptions.querySelectorAll('input:checked')].map((input) => input.value),
-    digitMode: els.digitModeInput.value, symbolMode: els.symbolModeInput.value
+    digitMode: els.digitModeInput.value, symbolMode: els.symbolModeInput.value,
+    requireDistinctWords: els.requireDistinctInput.checked,
+    sharedEnding: Number(els.sharedEndingInput.value)
   };
-  for (const field of ['minLength', 'maxLength', 'minDigits', 'maxDigits', 'minSymbols', 'maxSymbols']) rules[field] = Number(els[`${field}Input`].value);
+  for (const field of ['minLength', 'maxLength', 'minDigits', 'maxDigits', 'minSymbols', 'maxSymbols', 'word1MinLen', 'word1MaxLen', 'word2MinLen', 'word2MaxLen', 'digitMin']) rules[field] = Number(els[`${field}Input`].value);
+  const digitMaxRaw = els.digitMaxInput.value.trim();
+  rules.digitMax = digitMaxRaw === '' ? null : Number(digitMaxRaw);
   return { mode: els.modeInput.value, walletPath: els.walletInput.value.trim(), rules };
 }
 function validateForm() {
   if (!els.setupForm.reportValidity()) return false;
   if (els.modeInput.value === 'DEMO') return true;
   const { rules } = readSetup();
-  for (const [minimum, maximum, label] of [['minLength', 'maxLength', 'password length'], ['minDigits', 'maxDigits', 'digit count'], ['minSymbols', 'maxSymbols', 'symbol count']]) {
+  for (const [minimum, maximum, label] of [['minLength', 'maxLength', 'password length'], ['minDigits', 'maxDigits', 'digit count'], ['minSymbols', 'maxSymbols', 'symbol count'], ['word1MinLen', 'word1MaxLen', 'first word length'], ['word2MinLen', 'word2MaxLen', 'second word length']]) {
     if (rules[minimum] > rules[maximum]) { notice(`The minimum ${label} cannot exceed its maximum.`, true); return false; }
   }
+  if (rules.digitMax !== null && rules.digitMin > rules.digitMax) { notice('The smallest digit value cannot exceed the largest.', true); return false; }
   if (!rules.caseStyles.length || !rules.layouts.length) { notice('Select at least one capitalization style and one placement layout.', true); return false; }
   return true;
 }
@@ -378,6 +413,16 @@ els.toggleSetupBtn.addEventListener('click', async () => {
   finally { appState.action = null; renderSetup(); }
 });
 els.restartBtn.addEventListener('click', () => setupAction('restart'));
+els.exampleStructureBtn.addEventListener('click', () => {
+  if (busy()) return;
+  applyExampleStructure(); invalidatePreview();
+  notice('Controls set to the example password shape. Add or edit your word lists, then preview.');
+});
+els.symbolPresetInput.addEventListener('change', () => {
+  const preset = SYMBOL_PRESETS[els.symbolPresetInput.value];
+  if (preset !== undefined) { els.symbolsInput.value = preset; invalidatePreview(); }
+});
+els.symbolsInput.addEventListener('input', () => syncSymbolPreset(els.symbolsInput.value));
 els.setupForm.addEventListener('input', invalidatePreview);
 els.modeInput.addEventListener('change', () => { renderMode(); invalidatePreview(); });
 els.toggleSetupBtn.disabled = true;

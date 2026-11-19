@@ -14,6 +14,9 @@ function config(overrides = {}) {
     minDigits: 0, maxDigits: 2, minSymbols: 0, maxSymbols: 2,
     symbols: '!?', caseStyles: ['none'],
     layouts: ['suffix', 'between', 'split'],
+    // Pin the segment modes so these cases stay fixed regardless of the
+    // retuned guided defaults; mode-specific behavior is covered separately.
+    digitMode: 'repeated', symbolMode: 'repeated',
     ...overrides
   });
 }
@@ -25,8 +28,23 @@ function candidates(source) {
 
 test('guided input uses ASCII words, shifted US keyboard symbols, and separate digit/symbol rules', () => {
   const defaults = getGuidedDefaults();
+  assert.equal(defaults.minDigits, 2);
+  assert.equal(defaults.maxDigits, 2);
   assert.equal(defaults.minSymbols, 2);
-  assert.equal(defaults.maxSymbols, 4);
+  assert.equal(defaults.maxSymbols, 2);
+  assert.deepEqual(defaults.layouts, ['suffix']);
+  assert.deepEqual(defaults.caseStyles, ['title']);
+  assert.equal(defaults.digitMode, 'all');
+  assert.equal(defaults.symbolMode, 'all');
+  assert.equal(defaults.minLength, 11);
+  assert.equal(defaults.symbols, '!@#$%^&*()');
+  // Added constraints default to no-ops so an unset value never narrows coverage.
+  assert.equal(defaults.word1MinLen, 1);
+  assert.equal(defaults.word1MaxLen, 32);
+  assert.equal(defaults.digitMin, 0);
+  assert.equal(defaults.digitMax, null);
+  assert.equal(defaults.requireDistinctWords, false);
+  assert.equal(defaults.sharedEnding, 0);
   assert.equal(new Set(SHIFT_SYMBOLS).size, 21);
   assert.match(SHIFT_SYMBOLS, /[?~]/);
   const source = buildGuidedConfig({ word1: 'Alpha, Beta\nAlpha' });
@@ -194,4 +212,81 @@ test('normalization and resolver compilation detach their source values', () => 
   source.guided.caseStyles.push('upper');
   assert.equal(resolve(0), first);
   assert.match(first, /^AlphaBeta/);
+});
+
+test('per-word letter-length limits prune the word lists before pairing', () => {
+  const shortOnly = candidates(config({
+    word1: ['Ab', 'Abcde'], word2: ['Xy'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 0, maxDigits: 0, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, word1MaxLen: 2
+  }));
+  assert.deepEqual(shortOnly, ['AbXy']);
+  const longOnly = candidates(config({
+    word1: ['Ab', 'Abcde'], word2: ['Xy'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 0, maxDigits: 0, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, word1MinLen: 3
+  }));
+  assert.deepEqual(longOnly, ['AbcdeXy']);
+});
+
+test('digit value range narrows the numeric block in both modes', () => {
+  const allRange = candidates(config({
+    word1: ['A'], word2: ['B'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 2, maxDigits: 2, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, digitMode: 'all', digitMin: 50, digitMax: 59
+  }));
+  assert.equal(allRange.length, 10);
+  assert.ok(allRange.includes('AB50') && allRange.includes('AB59') && allRange.includes('AB55'));
+  assert.ok(!allRange.includes('AB49') && !allRange.includes('AB60'));
+  const repeatedRange = candidates(config({
+    word1: ['A'], word2: ['B'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 2, maxDigits: 2, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, digitMode: 'repeated', digitMin: 20, digitMax: 79
+  }));
+  assert.deepEqual(repeatedRange.sort(), ['AB22', 'AB33', 'AB44', 'AB55', 'AB66', 'AB77']);
+});
+
+test('distinct-word and shared-ending filters remove unwanted pairs', () => {
+  const distinct = candidates(config({
+    word1: ['A', 'B'], word2: ['A', 'B'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 0, maxDigits: 0, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, requireDistinctWords: true
+  }));
+  assert.deepEqual(distinct.sort(), ['AB', 'BA']);
+  const rhyming = candidates(config({
+    word1: ['Picky', 'Happy'], word2: ['Ricky'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 0, maxDigits: 0, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, sharedEnding: 4
+  }));
+  assert.deepEqual(rhyming, ['PickyRicky']);
+  assert.throws(() => compileCandidatePlan(config({
+    word1: ['Ricky'], word2: ['Ricky'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 0, maxDigits: 0, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, sharedEnding: 4
+  })), /No passwords/);
+});
+
+test('added constraints validate their inputs and default to no-ops', () => {
+  assert.throws(() => config({ word1MinLen: 5, word1MaxLen: 4 }), /cannot exceed/);
+  assert.throws(() => config({ digitMin: 90, digitMax: 10 }), /digitMin cannot exceed/);
+  assert.throws(() => config({ requireDistinctWords: 'yes' }), /true or false/);
+  assert.throws(() => config({ sharedEnding: 40 }), /whole number/);
+  assert.throws(() => config({ word1MinLen: 0 }), /whole number/);
+  // digitMax null means "no upper bound" and leaves the full numeric block.
+  const unbounded = candidates(config({
+    word1: ['A'], word2: ['B'], caseStyles: ['none'], layouts: ['suffix'],
+    minDigits: 2, maxDigits: 2, minSymbols: 0, maxSymbols: 0,
+    minLength: 2, maxLength: 40, digitMode: 'all', digitMin: 0, digitMax: null
+  }));
+  assert.equal(unbounded.length, 100);
+});
+
+test('the example-structure defaults match the known password shape and stay tractable', () => {
+  // Two 6-letter words, Title case, 2 digits + 2 symbols from the number row.
+  const source = buildGuidedConfig({ ...getGuidedDefaults(), word1: ['Tomato'], word2: ['Potato'] });
+  const space = calculateCandidateSpace(source);
+  // suffix + title only + exactly 2 digits (all=100) + exactly 2 symbols (10^2) = 10,000 per pair.
+  assert.equal(space, 100 * 100);
+  const resolver = createCandidateResolver(source);
+  assert.equal(resolver(0), 'TomatoPotato00!!');
 });
