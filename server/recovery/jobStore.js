@@ -20,6 +20,7 @@ const {
   MAX_RAW_CANDIDATES,
   SCHEMA_VERSION,
   calculateCandidateSpace,
+  candidateForUniqueIndex,
   compileCandidatePlan,
   validateConfig
 } = require('./candidateGenerator');
@@ -456,7 +457,7 @@ function loadOrCreateCheckpoint(paths, jobId, fresh, uniqueCount) {
 
 function validateCheckpointForPlan(checkpoint, uniqueCount) {
   if (checkpoint.nextCandidateIndex > uniqueCount
-      || checkpoint.totalVerified < checkpoint.nextCandidateIndex
+      || checkpoint.totalVerified + (checkpoint.reusedCandidateCount || 0) < checkpoint.nextCandidateIndex
       || (checkpoint.matchedUniqueIndex !== null
         && checkpoint.matchedUniqueIndex >= uniqueCount)) {
     throw new Error('CHECKPOINT_INDEX_OUT_OF_RANGE');
@@ -464,6 +465,7 @@ function validateCheckpointForPlan(checkpoint, uniqueCount) {
   if (checkpoint.state === 'ready'
       && (checkpoint.nextCandidateIndex !== 0
         || checkpoint.totalVerified !== 0
+        || (checkpoint.reusedCandidateCount || 0) !== 0
         || checkpoint.activeElapsedMs !== 0
         || checkpoint.startedAt !== null)) {
     throw new Error('CHECKPOINT_READY_STATE_INVALID');
@@ -649,6 +651,70 @@ function loadStoredJob({ runtimeDir: runtimeInput = null, jobId }) {
   };
 }
 
+// Upgrade old checkpoints into exact, wallet-scoped candidate results. Only
+// their validated contiguous frontier is evidence of a negative check; attempts
+// and interrupted in-flight positions are deliberately not imported. Archived
+// checkpoints preserve coverage across an earlier "restart from zero".
+async function importSearchHistory(ledger, runtimeDir, { shouldStop = () => false } = {}) {
+  const jobsDir = path.join(runtimeDir, 'jobs');
+  const report = { importedCandidateCount: 0, skippedJobCount: 0, completed: false };
+  if (!fs.existsSync(jobsDir)) return { ...report, completed: true };
+  for (const jobId of fs.readdirSync(jobsDir)) {
+    if (shouldStop()) return report;
+    if (!JOB_ID_PATTERN.test(jobId)) continue;
+    let stored;
+    let checkpoints;
+    try {
+      const paths = jobPaths(runtimeDir, jobId, { create: false });
+      const manifest = readJsonFile(paths.manifestPath, { privateFile: true, label: 'JOB_MANIFEST' });
+      if (manifest.walletHash !== ledger.walletHash) continue;
+      stored = loadStoredJob({ runtimeDir, jobId });
+      checkpoints = [stored.checkpoint];
+      for (const name of fs.readdirSync(paths.jobDir)) {
+        if (/^checkpoint\..+\.json$/.test(name)) {
+          checkpoints.push(validateCheckpointForPlan(
+            loadCheckpoint(path.join(paths.jobDir, name), jobId), stored.candidatePlan.uniqueCount
+          ));
+        }
+      }
+      const maximumFrontier = Math.max(...checkpoints.map((checkpoint) => checkpoint.nextCandidateIndex));
+      if (checkpoints.some((checkpoint) => checkpoint.state === 'found'
+          && checkpoint.matchedUniqueIndex < maximumFrontier)) {
+        throw new Error('HISTORY_CHECKPOINTS_INCONSISTENT');
+      }
+    } catch {
+      // An invalid old job supplies no trustworthy coverage. Keep its files
+      // untouched; candidates remain eligible for normal verification.
+      report.skippedJobCount += 1;
+      continue;
+    }
+    const frontier = Math.max(...checkpoints.map((checkpoint) => checkpoint.nextCandidateIndex));
+    let cursor = ledger.importedThrough(jobId);
+    while (cursor < frontier) {
+      if (shouldStop()) return report;
+      const end = Math.min(cursor + 512, frontier);
+      const results = [];
+      for (; cursor < end; cursor += 1) {
+        results.push({ candidate: candidateForUniqueIndex(stored.config, stored.candidatePlan, cursor), matched: false });
+      }
+      ledger.importBatch(jobId, cursor, results);
+      report.importedCandidateCount += results.length;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    for (const checkpoint of checkpoints) {
+      if (shouldStop()) return report;
+      if (checkpoint.state === 'found') {
+        ledger.importBatch(jobId, cursor, [{
+          candidate: candidateForUniqueIndex(stored.config, stored.candidatePlan, checkpoint.matchedUniqueIndex),
+          matched: true
+        }]);
+      }
+    }
+  }
+  report.completed = true;
+  return report;
+}
+
 module.exports = {
   EXAMPLE_PATTERNS_PATH,
   JOB_ID_PATTERN,
@@ -658,6 +724,7 @@ module.exports = {
   encodeRawIndices,
   jobIdentity,
   jobPaths,
+  importSearchHistory,
   loadStoredJob,
   prepareJob,
   releaseJobLock,

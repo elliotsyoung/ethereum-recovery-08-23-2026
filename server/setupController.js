@@ -1,10 +1,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { atomicWritePrivateJson, readJsonFile, resolveRuntimeDir } = require('./runtime');
+const { APP_SCHEMA_VERSION, atomicWritePrivateJson, readJsonFile, resolveRuntimeDir } = require('./runtime');
 const { prepareJob, releaseJobLock } = require('./recovery/jobStore');
 const { RecoveryEngine, RecoveryStateError } = require('./recovery/recoveryEngine');
-const { buildGuidedConfig, getGuidedDefaults } = require('./recovery/guidedConfig');
-const { compileCandidatePlan, validateConfig } = require('./recovery/candidateGenerator');
+const {
+  buildGuidedConfig, getGuidedDefaults, buildQuestionnaireConfig,
+  getQuestionnaireDefaults, getFragmentDefaults, summarizeGuidedConfig
+} = require('./recovery/guidedConfig');
+const { validateConfig } = require('./recovery/candidateGenerator');
+const { preflightKeystore } = require('./recovery/walletVerifier');
+const { BENCHMARK_VERSION, runBenchmark } = require('./recovery/benchmark');
+const { searchAdvice } = require('./recovery/searchAdvice');
 
 class SetupError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -48,13 +54,14 @@ class SetupController {
     this.shutdownPromise = null;
     this.freshPending = Boolean(options.fresh);
     this.onFatal = onFatal;
+    this.measurement = null;
   }
 
   getSetup() {
     return {
       enabled: true, configured: Boolean(this.engine), busy: Boolean(this.pending),
       savedJobAvailable: fs.existsSync(this.savedPath),
-      defaults: { mode: 'REAL', walletPath: '', rules: getGuidedDefaults() }
+      defaults: { mode: 'REAL', walletPath: '', rules: getQuestionnaireDefaults(), fragmentRules: getFragmentDefaults() }
     };
   }
 
@@ -64,7 +71,7 @@ class SetupController {
     return {
       mode: this.job.mode,
       walletPath: this.job.mode === 'REAL' ? this.job.wallet.path : '',
-      rules: this.job.mode === 'REAL' ? structuredClone(this.job.config.guided) : getGuidedDefaults()
+      rules: this.job.mode === 'REAL' ? structuredClone(this.job.config.guided) : getQuestionnaireDefaults()
     };
   }
 
@@ -88,22 +95,23 @@ class SetupController {
     };
   }
 
-  _selection(input) {
+  _selection(input, { preview = false } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)
-        || Object.keys(input).some((key) => !['mode', 'walletPath', 'rules'].includes(key))) {
+        || Object.keys(input).some((key) => !['mode', 'walletPath', 'rules', 'coverageAcknowledged'].includes(key))) {
       throw new SetupError('SETUP_INVALID', 'Supply a wallet mode and password rules.');
     }
     if (!['DEMO', 'REAL'].includes(input.mode)) {
       throw new SetupError('MODE_INVALID', 'Choose a local wallet or the demo.');
     }
     if (input.mode === 'DEMO') return { mode: 'DEMO', config: demoConfig(), walletPath: null };
-    if (typeof input.walletPath !== 'string' || !path.isAbsolute(input.walletPath)
-        || input.walletPath.length > 4096 || input.walletPath.includes('\0')) {
+    const noWalletYet = preview && input.rules?.searchMode && !input.walletPath;
+    if (!noWalletYet && (typeof input.walletPath !== 'string' || !path.isAbsolute(input.walletPath)
+        || input.walletPath.length > 4096 || input.walletPath.includes('\0'))) {
       throw new SetupError('WALLET_PATH_INVALID', 'Enter the absolute path to your local keystore JSON file.');
     }
     let config;
     try {
-      config = buildGuidedConfig(input.rules);
+      config = input.rules?.searchMode ? buildQuestionnaireConfig(input.rules) : buildGuidedConfig(input.rules);
     } catch (error) {
       // Guided validation contains field names and bounds, never supplied words.
       throw new SetupError('RULES_INVALID', error.message);
@@ -113,29 +121,77 @@ class SetupController {
 
   preview(input) {
     if (this.closing) throw new RecoveryStateError('SHUTDOWN_IN_PROGRESS');
-    const selection = this._selection(input);
-    let plan;
+    const selection = this._selection(input, { preview: true });
+    let summary;
     try {
-      plan = compileCandidatePlan(selection.config);
+      summary = summarizeGuidedConfig(selection.config);
     } catch (error) {
       throw new SetupError('RULES_INVALID', error.message);
     }
-    if (plan.uniqueCount === 0) {
+    if (summary.uniqueCandidateCount === 0) {
       throw new SetupError('NO_CANDIDATES', 'No passwords fit these rules. Widen the length range or adjust your word lists.');
     }
-    const warnings = [];
-    if (selection.mode === 'DEMO') warnings.push('The demo uses a built-in wallet and a known 1,000-candidate search.');
-    else {
-      warnings.push('Coverage is limited to your word lists, selected case styles, and layouts.');
-      if (selection.config.guided.digitMode === 'repeated' || selection.config.guided.symbolMode === 'repeated') {
-        warnings.push('Repeated mode covers runs of one character. Choose all combinations to include mixed runs.');
-      }
-      if (plan.uniqueCount > 1_000_000) warnings.push('This is a large search. Preparation measures your wallet speed to estimate its duration.');
-    }
+    const measurement = this._measurementFor(selection);
+    const advice = searchAdvice(selection.config, summary, measurement);
+    if (selection.mode === 'DEMO') advice.warnings.unshift('The demo uses a built-in wallet and a known 1,000-candidate search.');
     return {
-      rawCandidateCount: plan.rawCount, uniqueCandidateCount: plan.uniqueCount,
-      duplicatesRemoved: plan.duplicateCount, warnings
+      ...summary,
+      candidateCountExact: summary.candidateCountExact || String(summary.uniqueCandidateCount),
+      runnable: summary.runnable !== false,
+      ...advice
     };
+  }
+
+  _measurementFor(selection) {
+    // Re-read a previously measured path so replacing its wallet cannot attach a
+    // stale rate to different scrypt parameters. Ordinary previews do no I/O.
+    if (selection.mode === 'DEMO') {
+      return this.job?.mode === 'DEMO' && this.engine?.benchmark?.status === 'ok'
+        ? this.engine.benchmark : null;
+    }
+    const measured = this.measurement;
+    const sameMeasurementPath = measured?.walletPath === selection.walletPath;
+    const sameJobPath = this.job?.mode === 'REAL' && this.job.wallet.path === selection.walletPath;
+    if (!sameMeasurementPath && !sameJobPath) return null;
+    try {
+      const wallet = preflightKeystore(selection.walletPath);
+      if (sameMeasurementPath && wallet.walletHash === measured.walletHash) {
+        return { ...measured.benchmark, measuredAt: measured.measuredAt };
+      }
+      if (sameJobPath && wallet.walletHash === this.job.wallet.walletHash
+          && this.engine?.benchmark?.status === 'ok') return this.engine.benchmark;
+    } catch {
+      // Preview is still useful when a wallet is temporarily unavailable.
+    }
+    return null;
+  }
+
+  async measure(input) {
+    let result;
+    await this._exclusive(async () => {
+      if (!input || input.mode !== 'REAL' || typeof input.walletPath !== 'string'
+          || !path.isAbsolute(input.walletPath) || input.walletPath.length > 4096
+          || input.walletPath.includes('\0')) {
+        throw new SetupError('WALLET_PATH_INVALID', 'Enter an absolute local wallet path to measure verification speed.');
+      }
+      this.phase = 'Measuring wallet speed';
+      const wallet = preflightKeystore(input.walletPath);
+      const workerSetting = this.options.workerSetting || 'auto';
+      const benchmark = await runBenchmark({
+        verificationContext: wallet.verificationContext,
+        workerCounts: workerSetting === 'auto' ? [1, 2, 4] : [Number(workerSetting)]
+      });
+      this.measurement = {
+        walletPath: input.walletPath, walletHash: wallet.walletHash,
+        benchmark, measuredAt: new Date().toISOString(), workerSetting
+      };
+      result = {
+        guessesPerSecond: benchmark.guessesPerSecond,
+        selectedWorkerCount: benchmark.selectedWorkerCount,
+        measuredAt: this.measurement.measuredAt
+      };
+    });
+    return result;
   }
 
   _exclusive(operation) {
@@ -159,8 +215,15 @@ class SetupController {
 
   configure(input) {
     return this._exclusive(async () => {
-      this.preview(input);
-      await this._prepare(this._selection(input));
+      const preview = this.preview(input);
+      const selection = this._selection(input);
+      if (selection.config.schemaVersion === 3 && input.coverageAcknowledged !== true) {
+        throw new SetupError('COVERAGE_REVIEW_REQUIRED', 'Review the selected coverage and confirm that uncertain memories have not become required filters.');
+      }
+      if (!preview.runnable) {
+        throw new SetupError('SEARCH_TOO_LARGE', 'This search exceeds the indexed-job limit. The preview retains its exact count; recover more information before preparing.');
+      }
+      await this._prepare(selection);
     });
   }
 
@@ -221,7 +284,15 @@ class SetupController {
         this.onFatal(new Error('JOB_LOCK_LOST'));
       };
       if (job.lock.lost) throw new Error('JOB_LOCK_LOST');
-      this.phase = 'Measuring wallet speed';
+      this.phase = 'Preparing saved coverage and wallet speed';
+      if (this.measurement?.walletHash === job.wallet.walletHash
+          && this.measurement.workerSetting === String(workerSetting)) {
+        atomicWritePrivateJson(job.paths.benchmarkPath, {
+          schemaVersion: APP_SCHEMA_VERSION, benchmarkVersion: BENCHMARK_VERSION,
+          jobId: job.jobId, workerSetting: String(workerSetting),
+          measuredAt: this.measurement.measuredAt, benchmark: this.measurement.benchmark
+        });
+      }
       await engine.initialize();
       if (job.lock.lost) throw new Error('JOB_LOCK_LOST');
       if (this.closing) throw new RecoveryStateError('SHUTDOWN_IN_PROGRESS');

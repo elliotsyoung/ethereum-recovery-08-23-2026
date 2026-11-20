@@ -32,6 +32,7 @@ function defaultCheckpoint(jobId) {
     state: 'ready',
     nextCandidateIndex: 0,
     totalVerified: 0,
+    reusedCandidateCount: 0,
     activeElapsedMs: 0,
     startedAt: null,
     lastCheckpointAt: null,
@@ -57,6 +58,10 @@ function validateCheckpoint(value, expectedJobId) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) {
       throw new Error('CHECKPOINT_COUNTER_INVALID');
     }
+  }
+  if (value.reusedCandidateCount !== undefined
+      && (!Number.isSafeInteger(value.reusedCandidateCount) || value.reusedCandidateCount < 0)) {
+    throw new Error('CHECKPOINT_COUNTER_INVALID');
   }
   if (value.matchedUniqueIndex !== null
       && (!Number.isSafeInteger(value.matchedUniqueIndex) || value.matchedUniqueIndex < 0)) {

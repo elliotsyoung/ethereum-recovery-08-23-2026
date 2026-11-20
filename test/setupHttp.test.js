@@ -58,8 +58,10 @@ test('setup HTTP startup is immediately usable without a wallet, benchmark, or r
   const setup = await setupResponse.json();
   assert.equal(setup.enabled, true);
   assert.equal(setup.configured, false);
-  assert.deepEqual(setup.defaults.rules.word1, []);
-  assert.deepEqual(setup.defaults.rules.word2, []);
+  assert.equal(setup.defaults.rules.searchMode, 'mask');
+  assert.deepEqual(setup.defaults.rules.masks, []);
+  assert.deepEqual(setup.defaults.fragmentRules.word1, []);
+  assert.deepEqual(setup.defaults.fragmentRules.word2, []);
   assert.equal(setup.defaults.walletPath, '');
 
   const status = await fetch(`${server.origin}/api/status`).then((response) => response.json());
@@ -79,7 +81,7 @@ test('setup HTTP startup is immediately usable without a wallet, benchmark, or r
 
 test('every setup POST, including current settings and restart, requires origin, session, and JSON', async (t) => {
   const server = await setupServer(t);
-  for (const endpoint of ['preview', 'configure', 'restore', 'current', 'restart']) {
+  for (const endpoint of ['preview', 'measure', 'configure', 'restore', 'current', 'restart']) {
     const route = `/api/setup/${endpoint}`;
     for (const [overrides, expectedStatus, errorCode] of [
       [{ origin: '' }, 403, 'ORIGIN_REJECTED'],
@@ -146,8 +148,9 @@ test('demo prepares through HTTP while ordinary status and setup reads contain n
 
   const ordinarySetup = await fetch(`${server.origin}/api/setup`).then((response) => response.json());
   assert.equal(ordinarySetup.configured, true);
-  assert.deepEqual(ordinarySetup.defaults.rules.word1, []);
-  assert.deepEqual(ordinarySetup.defaults.rules.word2, []);
+  assert.deepEqual(ordinarySetup.defaults.rules.masks, []);
+  assert.deepEqual(ordinarySetup.defaults.fragmentRules.word1, []);
+  assert.deepEqual(ordinarySetup.defaults.fragmentRules.word2, []);
   assert.equal(ordinarySetup.defaults.walletPath, '');
   const ordinaryStatus = await fetch(`${server.origin}/api/status`).then((response) => response.json());
   assertNoPrivateData(ordinaryStatus);
@@ -160,8 +163,8 @@ test('demo prepares through HTTP while ordinary status and setup reads contain n
   assert.equal(currentPayload.ok, true);
   assert.equal(currentPayload.selection.mode, 'DEMO');
   // Demo rules stay internal so switching to a real wallet starts with empty hints.
-  assert.deepEqual(currentPayload.selection.rules.word1, []);
-  assert.deepEqual(currentPayload.selection.rules.word2, []);
+  assert.equal(currentPayload.selection.rules.searchMode, 'mask');
+  assert.deepEqual(currentPayload.selection.rules.masks, []);
   assert.equal(server.controller.getStatus().state, 'ready');
   const restarted = await server.post('/api/setup/restart');
   assert.equal(restarted.status, 200);

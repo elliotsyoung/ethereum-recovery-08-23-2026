@@ -73,7 +73,7 @@ test('dashboard disables stale and busy controls and keeps configuration locked 
   app.run('appState.statusRequestFailed = false;');
   render(app, sampleStatus({ state: 'paused' }));
   assert.equal(app.elements.get('resumeBtn').disabled, false);
-  assert.equal(app.elements.get('configureBtn').disabled, false);
+  assert.equal(app.elements.get('configureBtn').disabled, true, 'new settings need a reviewed current preview');
   assert.equal(app.elements.get('restartBtn').disabled, false);
   render(app, sampleStatus({ state: 'paused', operationInProgress: 'benchmark' }));
   assert.equal(app.elements.get('resumeBtn').disabled, true);
@@ -83,8 +83,10 @@ test('dashboard disables stale and busy controls and keeps configuration locked 
 
 test('found results refresh the reveal command when controller adds the runtime path', () => {
   const app = client();
-  const status = sampleStatus({ state: 'found', matchFound: true });
+  const status = sampleStatus({ state: 'found', matchFound: true, matchConfirming: true });
   render(app, status);
+  assert.equal(app.elements.get('stateValue').textContent, 'Found');
+  assert.equal(app.elements.get('readinessBadge').textContent, 'Found');
   assert.equal(app.elements.get('resultBanner').children[1].textContent, `npm run reveal -- --job ${status.jobId}`);
   const revealCommand = `npm run reveal -- --job ${status.jobId} --runtime-dir '/tmp/recovery'`;
   render(app, { ...status, revealCommand });
@@ -129,4 +131,131 @@ test('editing hydrates the active search through authenticated POST and restart 
   assert.equal(restartRequest.options.body, '{}');
   assert.equal(app.elements.get('verifiedValue').textContent, '0');
   assert.match(app.elements.get('notice').textContent, /checkpoint is archived/);
+});
+
+test('unknown defaults keep arbitrary structure and notes never become search filters', () => {
+  const app = client();
+  app.run('applyDefaults()');
+  assert.equal(app.elements.get('searchModeInput').value, 'mask');
+  assert.equal(app.elements.get('minLengthInput').value, 11);
+  assert.equal(app.elements.get('maxLengthInput').value, 64);
+  assert.equal(app.elements.get('fragmentFields').hidden, true);
+  app.elements.get('memoryNotesInput').value = 'Maybe a rhyme or a typo';
+  const setup = JSON.parse(app.run('JSON.stringify(readSetup())'));
+  assert.deepEqual(setup.rules, { searchMode: 'mask', masks: [], minLength: 11, maxLength: 64 });
+  assert.equal(JSON.stringify(setup).includes('Maybe'), false);
+  app.run("appState.previewKey = 'saved'; els.coverageConfirm.checked = true; invalidatePreview({target:els.memoryNotesInput});");
+  assert.equal(app.run('appState.previewKey'), 'saved');
+  assert.equal(app.elements.get('coverageConfirm').checked, true);
+});
+
+test('preview preserves enormous exact counts and labels illustrative time honestly', () => {
+  const app = client();
+  app.context.preview = {
+    candidateCountExact: '123456789012345678901234567890', runnable: false,
+    estimate: { source: 'illustrative', scenarios: [{ guessesPerSecond: 10, seconds: 120 }] },
+    coverage: ['All positions remain open.'],
+    questions: [{ prompt: 'What length range is certain?', reason: 'An exact boundary can reduce the search.' }]
+  };
+  app.run('renderPreview(preview)');
+  assert.equal(app.elements.get('previewCount').textContent, BigInt(app.context.preview.candidateCountExact).toLocaleString());
+  assert.match(app.elements.get('measurementHelp').textContent, /not a forecast/);
+  assert.match(app.elements.get('estimateScenarios').children[0].textContent, /If 10 checks\/sec: 2m 0s/);
+  assert.match(app.elements.get('previewWarnings').children[0].textContent, /cannot be started/);
+  assert.equal(app.elements.get('questionSuggestions').hidden, false);
+  assert.equal(app.elements.get('coverageList').children[0].textContent, 'All positions remain open.');
+});
+
+test('out-of-order preview responses never replace the current filter estimate', async () => {
+  const pending = [];
+  const app = client((url, options) => new Promise((resolve) => pending.push({ url, options, resolve })));
+  app.run('applyDefaults()');
+  app.elements.get('masksInput').value = 'abcdefghij?d';
+  const first = app.run('previewSearch({automatic:true})');
+  app.elements.get('masksInput').value = 'abcdefghij?x';
+  app.run('invalidatePreview()');
+  const second = app.run('previewSearch({automatic:true})');
+  pending[1].resolve({ ok: true, status: 200, json: async () => ({ preview: { candidateCountExact: '95', runnable: true } }) });
+  await second;
+  pending[0].resolve({ ok: true, status: 200, json: async () => ({ preview: { candidateCountExact: '10', runnable: true } }) });
+  await first;
+  assert.equal(app.elements.get('previewCount').textContent, '95');
+  assert.equal(app.run('appState.previewKey === JSON.stringify(readSetup())'), true);
+  assert.equal(app.elements.get('coverageConfirm').checked, false);
+});
+
+test('preparing requires current reviewed coverage and carries explicit acknowledgement', async () => {
+  const requests = [];
+  const app = client(async (url, options) => {
+    requests.push({ url, body: options?.body && JSON.parse(options.body) });
+    return { ok: true, status: 200, json: async () => url === '/api/status' ? sampleStatus({ state: 'ready' }) : { status: sampleStatus({ state: 'ready' }) } };
+  });
+  app.run('applyDefaults()');
+  app.elements.get('walletInput').value = '/tmp/wallet.json';
+  app.elements.get('masksInput').value = 'abcdefghij?d';
+  await app.run("setupAction('configure')");
+  assert.equal(requests.length, 0);
+  assert.match(app.elements.get('errorBanner').textContent, /coverage/);
+  app.run('appState.preview = {runnable:true}; appState.previewKey = JSON.stringify(readSetup()); els.coverageConfirm.checked = true;');
+  await app.run("setupAction('configure')");
+  assert.equal(requests[0].url, '/api/setup/configure');
+  assert.equal(requests[0].body.coverageAcknowledged, true);
+  assert.deepEqual(requests[0].body.rules.masks, ['abcdefghij?d']);
+});
+
+test('changing a filter clears coverage consent and separates reused results from attempts', () => {
+  const app = client();
+  app.run('applyDefaults(); appState.preview = {runnable:true}; appState.previewKey = JSON.stringify(readSetup()); els.coverageConfirm.checked = true;');
+  render(app, sampleStatus({ state: 'paused', reusedCandidateCount: 17 }));
+  assert.equal(app.elements.get('configureBtn').disabled, false);
+  assert.equal(app.elements.get('reusedValue').textContent, '17');
+  assert.equal(app.elements.get('attemptsValue').textContent, '25');
+  app.run('invalidatePreview()');
+  assert.equal(app.elements.get('coverageConfirm').checked, false);
+  assert.equal(app.elements.get('configureBtn').disabled, true);
+});
+
+test('wallet measurement sends no hints and refreshes the current estimate', async () => {
+  const requests = [];
+  const app = client(async (url, options) => {
+    requests.push({ url, body: options?.body && JSON.parse(options.body) });
+    const payload = url === '/api/setup/measure'
+      ? { measurement: { guessesPerSecond: 20 } }
+      : url === '/api/setup/preview'
+        ? { preview: { candidateCountExact: '10', runnable: true, estimate: { source: 'measured', guessesPerSecond: 20, seconds: .5 } } }
+        : { state: 'setup' };
+    return { ok: true, status: 200, json: async () => payload };
+  });
+  app.run('applyDefaults()');
+  app.elements.get('walletInput').value = '/tmp/wallet.json';
+  app.elements.get('masksInput').value = 'abcdefghij?d';
+  app.elements.get('memoryNotesInput').value = 'private tentative thought';
+  await app.run("setupAction('measure')");
+  assert.deepEqual(requests[0].body, { mode: 'REAL', walletPath: '/tmp/wallet.json' });
+  assert.equal(requests.at(-1).url, '/api/setup/preview');
+  assert.match(app.elements.get('previewDuration').textContent, /20 checks\/sec/);
+  assert.equal(app.elements.get('coverageConfirm').checked, false);
+});
+
+test('delegated change on blur and coverage events preserve an already previewed selection', async () => {
+  const app = client(async () => ({ ok: true, status: 200, json: async () => ({ preview: { candidateCountExact: '10', runnable: true } }) }));
+  app.run('applyDefaults()');
+  app.elements.get('masksInput').value = 'abcdefghij?d';
+  await app.run('previewSearch({automatic:true})');
+  const key = app.run('appState.previewKey');
+  // Browsers emit change when the textarea loses focus, after the input-driven
+  // live preview has already arrived. A click on coverage must survive it.
+  app.elements.get('setupForm').listeners.change({ target: app.elements.get('masksInput') });
+  app.elements.get('coverageConfirm').checked = true;
+  app.elements.get('setupForm').listeners.input({ target: app.elements.get('coverageConfirm') });
+  app.elements.get('setupForm').listeners.change({ target: app.elements.get('coverageConfirm') });
+  assert.equal(app.elements.get('coverageConfirm').checked, true);
+  assert.equal(app.run('appState.previewKey'), key);
+  assert.equal(app.elements.get('configureBtn').disabled, false);
+  app.elements.get('memoryNotesInput').value = 'a hunch';
+  app.elements.get('setupForm').listeners.input({ target: app.elements.get('memoryNotesInput') });
+  assert.equal(app.elements.get('coverageConfirm').checked, true);
+  app.elements.get('masksInput').value = 'abcdefghij?x';
+  app.elements.get('setupForm').listeners.input({ target: app.elements.get('masksInput') });
+  assert.equal(app.elements.get('coverageConfirm').checked, false);
 });

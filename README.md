@@ -1,6 +1,6 @@
 # Local Ethereum Password Recovery
 
-A local dashboard for recovering a forgotten Ethereum keystore password from likely two-word combinations. Enter what you remember, preview the exact search size, and follow the search with saved progress and a rough completion estimate.
+A local dashboard for recovering a forgotten Ethereum keystore password from remembered character patterns or explicit letter-fragment hypotheses. Review what each filter excludes, see the exact search size and estimated duration, and reuse completed checks across jobs in a private SQLite database.
 
 Requires **macOS and Node 24**. macOS supplies `lockf`, which prevents two processes from working on the same job. Node is pinned in `.nvmrc`; if needed, run `nvm install` and `nvm use` once.
 
@@ -28,59 +28,78 @@ caffeinate -i npm start
 
 ## Set up the search
 
-The form asks for three groups of information:
+The questionnaire starts with **unknown structure**, a minimum length of **11**, and a maximum of **64** (the supported length ceiling). Unknown characters include all 95 printable ASCII characters: English letters in either case, digits, punctuation, and space. There is no spelling, dictionary, rhyme, two-word, capitalization, digit-count, or suffix assumption in this mode. The upper length bound and ASCII alphabet are explicit coverage limits.
 
-1. **Wallet:** the local keystore path, or demo mode.
-2. **Words and length:** likely first and second words, plus minimum and maximum password length, and an optional per-word letter-count limit. Supply up to 200 distinct words per list, separated by spaces, commas, or newlines. Leave the second list blank to reuse the first list and try every pairing, including both orders.
-3. **Digits and symbols:** minimum and maximum counts, a symbol-set preset and the possible symbols, and an optional value range for the digit block. Capitalization, placement, combination modes, and word-pairing filters are available under the refinement controls.
+Start with the memory prompts: possible lengths, exact characters and positions, capitalization, numbers, symbols, arrangement, and spelling alternatives. Keep uncertain recollections in **memory notes**; notes stay in the page and are never sent to the server or used as filters. Leave unknowns broad. Every required restriction can exclude the real password if the recollection is wrong, so the coverage review must be acknowledged before preparing a new search. Adding a plausible alternative expands coverage; replacing an unknown with a guess narrows it.
 
-Select **Match the example structure** at the top of the form to set every control at once to the known shape — two Title-case words, then exactly two digits and two number-row symbols at the end — without touching your word lists.
+### Character patterns
 
-Words contain English keyboard letters `A–Z` and `a–z`, with 1–32 letters per word. The total password length can be 2–64 characters. Digits are `0–9`; symbols are the shifted US English keyboard characters:
+Enter one pattern per line. Alternatives form a **union** and overlapping candidates are counted and searched once. Blank patterns search every allowed character at each selected length, without assuming word boundaries.
 
-```text
-! @ # $ % ^ & * ( ) _ + { } | : " < > ? ~
-```
+| Pattern token | Meaning |
+| --- | --- |
+| `?l` | One lowercase English letter |
+| `?u` | One uppercase English letter |
+| `?a` | One English letter in either case |
+| `?d` | One digit, including zero |
+| `?s` | One ASCII punctuation character or space (33 choices) |
+| `?x` | One allowed printable ASCII character (95 choices) |
+| `??` | A literal question mark |
+| `?x{4}` | Four unknown characters |
+| `?x{2,5}` | Every unknown-character length from two through five |
 
-Digits and symbols both count toward the combined nonletter total. Defaults match the observed password shape: **11–20 total characters**, exactly **two digits**, exactly **two symbols** drawn from the **number row** (`! @ # $ % ^ & * ( )`), **Title case**, the **suffix** layout, and **all-combinations** digit and symbol modes, so non-repeating runs such as `58` or `!#` are included. Each count can still range from 0 to 12, and the symbol set can be widened to all shift symbols; loosen any control you are unsure about.
+Other characters are literal, including braces and backslashes. Repetition attaches only to a named wildcard token. For example, **only if you remember that exact prefix**, `Mispellt?x{3,5}` tries that spelling followed by three through five unknown characters, subject to the total length interval. Include separate patterns for every plausible spelling, case, or placement; do not substitute examples for evidence. Patterns outside the selected length interval are excluded.
 
-### Narrowing the search
+Up to 64 patterns are accepted. Expansion is bounded to 4,096 structural alternatives and 100,000 decision-trie nodes. Overly complex unions produce an explicit error; split them into smaller jobs and reuse their completed checks. No candidates are silently discarded to fit these limits.
 
-The word-pair list is the largest part of the search, so the controls that prune it help the most. All of the following default to a no-op, so they only ever narrow the search when you set them:
+### Two-fragment hypotheses
 
-- **Per-word letter count:** cap the letters in the first and/or second word (the example passwords use 4–6 letters each). This removes word pairs before any digit or symbol work.
-- **Digit value range:** if you remember the number itself (for example, that it was in the 50s–70s), bound the digit block to that range. The bound applies to each contiguous run of digits.
-- **Symbol set preset:** start from the number row (`! @ # $ % ^ & * ( )`), the shifted `1`–`5` keys (`! @ # $ %`), or all shift symbols, then edit the list by hand.
-- **Word pairing (refinement controls):** require the two words to differ, or keep only pairs that *rhyme* — sharing their last 2–4 letters while starting with different letters, like `Picky`/`Ricky` or `Whammy`/`Shammy`. Use these only when you are confident, as they discard many pairs.
+Choose **Two letter fragments** only when deliberately testing that structure. These are arbitrary English-letter strings, not dictionary words: invented strings and misspellings are accepted. Supply up to 200 distinct fragments in each list, separated by spaces, commas, or newlines, with 1–32 letters each. Leaving the second list blank tries every pairing from the first, including both orders.
 
-**Repeated** mode searches one repeated character per group: `22`, `777`, `!!`, or `####`. **All combinations** also covers mixed groups such as `27` and `!?`, including leading zeroes for numbers. Repeated digits apply separately to each group in the split layout, so its two groups can differ.
+This mode exposes per-fragment lengths, total length, digit and symbol count ranges, a digit-value range, possible symbols, capitalization, placement, repeated/all combinations, and an optional distinct-fragment restriction. Defaults include all supported styles and layouts, 0–12 digits, 0–12 trailing symbols, and every ASCII special character. These are still structural and count limits, and the coverage review states them. New jobs have no shared-ending/rhyme filter.
 
-| Layout | Structure | Illustrative candidate |
-| --- | --- | --- |
-| Suffix | word + word + digits + symbols | `RiverStone22!!` |
-| Between | word + digits + word + symbols | `River22Stone!!` |
-| Split | word + digits + word + digits + symbols | `River2Stone7!!` |
+| Layout | Structure |
+| --- | --- |
+| Suffix | fragment + fragment + digits + symbols |
+| Between | fragment + digits + fragment + symbols |
+| Split | fragment + digits + fragment + digits + symbols |
 
-All three layouts are selected by default. Between needs at least one digit; split needs at least two and tries every nonempty division of the digit count. Symbols are a trailing group in these layouts. Title case and lowercase are selected by default; uppercase and “as entered” are also available. A selected case style applies to both words together. “As entered” preserves the spelling and capitalization in your lists.
+Between requires at least one digit; split requires at least two and includes every nonempty division. Symbols are trailing in these layouts. A selected case style applies to both fragments together; **As entered** preserves their supplied capitalization. Use character patterns for arbitrary mixed case, spaces within fragments, symbols elsewhere, or other arrangements. Repeated mode excludes mixed runs; all-combinations mode includes them and leading zeroes. A digit-value bound applies to each contiguous digit run separately, including each split group.
 
-Select **Preview search** to see the count, then **Prepare search** to validate the wallet and measure its actual verification speed. Review the estimate and select **Start recovery**. Automatic calibration measures 1, 2, and 4 workers when their estimated memory fits within half of system RAM, then selects the fastest measured width. Override it with `npm start -- --workers 1` through `4`.
+### Estimates before a job
 
-Coverage is defined by your word lists, case styles, layouts, and combination choices. This is a targeted search; there is no bundled universal dictionary. An exhausted search means every candidate in that selection was checked. Broaden your lists or rules as needed. All-combination searches can grow enormously even though preparation is fast.
+The preview updates as settings change. It shows the exact candidate count, coverage exclusions, follow-up memory questions, and the time for the **entire selected search**. Before calibration, the durations at 1, 10, and 100 checks/second are clearly labeled illustrative scenarios, not measurements of your wallet.
+
+Enter a local wallet path and select **Measure wallet speed** to benchmark before creating a job, even for a search too large to execute. The measured rate applies only to that exact wallet and is invalidated if the file changes. Preparing a job reuses that calibration. Automatic calibration compares 1, 2, and 4 workers when their estimated memory fits within half of system RAM; override with `npm start -- --workers 1` through `4`.
+
+Counts use exact integer arithmetic even above the executable index limit of **9,007,199,254,740,991** candidates. Such searches can be previewed but cannot be prepared. Add only information you can confidently supply, or divide the work into explicit hypotheses. Unknown answers never trigger an automatic restriction. Estimates before execution conservatively include all selected candidates; reuse removes expensive checks during execution, while candidate generation and database lookups still take time. A match may appear earlier or may be outside the selected space.
+
+Select **Prepare search**, review the measured estimate, then **Start recovery**. Demo mode retains its known 1,000-candidate rehearsal. An exhausted job means the selected candidates were covered, not that every possible password was searched.
 
 ## Progress and recovery controls
 
 The dashboard refreshes once per second while visible and shows passwords searched, remaining candidates, current checks per second, active runtime, estimated time left, and expected finish time.
 
 - **Passwords searched** and **Remaining** use the contiguous candidate coverage that can be resumed safely. Out-of-order worker completions join that count when the preceding work finishes. A found match is counted without implying that earlier unfinished work completed.
-- **Total verification attempts** in the details includes checks repeated after an interruption. Attempts can exceed the unique candidate count.
+- **Total verification attempts** counts actual worker checks for this job. **Checks reused** counts candidates satisfied by completed results in the shared history. Coverage can therefore exceed this job’s verification attempts. A replayed checkpoint may revisit cached candidates without repeating their expensive verification. The reused-check counter counts cache hits, including repeat visits after interrupted progress; it is not a unique-password count.
 - **Current speed** uses a rolling 30-second window. The initial estimate comes from calibration; live measurements take over during recovery. A stalled search reports an unknown estimate. Paused searches can use their historical average as a reference.
 - **Time running** uses a monotonic clock and excludes paused and offline time. The ETA estimates the full remaining search at the measured rate, not the time at which a match will appear. It changes with machine load and is only a heuristic.
 
-**Pause** and **Stop** both save a durable checkpoint before acknowledging completion. Resume a paused search with **Resume**; continue a stopped search with **Start recovery**. Neither discards progress. `Ctrl-C` or `SIGTERM` saves a running job as interrupted before shutdown. Periodic checkpoints occur every 15 seconds; work after the last checkpoint may repeat after an abrupt crash, without skipping candidates.
+**Pause** and **Stop** both save a durable checkpoint before acknowledging completion. Resume a paused search with **Resume**; continue a stopped search with **Start recovery**. Neither discards progress. `Ctrl-C` or `SIGTERM` saves a running job as interrupted before shutdown. Periodic checkpoints occur every 15 seconds. Each completed verification result is committed to SQLite before progress advances, so replaying a stale checkpoint reuses those results. Work interrupted before its result was committed may be retried; uncertain work is never treated as completed.
 
-After restarting `npm start`, choose **Restore last search** to load the previous settings and compatible progress. **Edit search** restores the current settings to the form so you can refine them. Pause or stop before changing an active search. A different wallet or configuration creates a different job; the previous job remains on disk.
+After restarting `npm start`, choose **Restore last search** to load the previous settings and compatible progress. **Edit search** restores the current settings to the form so you can refine them. Pause or stop before changing an active search. A different wallet or configuration creates a different job; the previous job remains on disk. Jobs for the exact same wallet share completed candidate checks even when filters, candidate order, or generator mode differ.
 
-**Restart from zero** archives the current checkpoint and prepares that same search from its beginning. It is available while the search is inactive. The CLI equivalent is `npm start -- --fresh`, which applies to the first search prepared or restored in that launch.
+**Restart from zero** archives the current checkpoint and resets its progress display. Shared completed results remain available, so already checked candidates are reused as the search walks its indexes again. It is available while the search is inactive. The CLI equivalent is `npm start -- --fresh`, which applies to the first search prepared or restored in that launch.
+
+## Shared search history
+
+Node 24’s built-in SQLite stores completed outcomes under the private runtime directory. The key is the **exact wallet-file SHA-256 fingerprint plus an HMAC-SHA256 digest of the candidate’s verifier-normalized UTF-8 bytes (NFKC)**; candidate text is not stored in this database. Job IDs, filters, and candidate indexes are not part of this identity. Different wallets cannot reuse negative results, because their verification answers can differ. Use the same runtime directory for jobs that should share history.
+
+Database transactions claim work before dispatch and commit completed outcomes before checkpoint advancement. Concurrent jobs wait for an existing live claim instead of checking it again. A dead process’s unfinished claim can be reclaimed. Crashes cannot provide a strict exactly-once guarantee for checks whose result never reached durable storage; those may be repeated to preserve coverage. Cached matches still undergo independent wallet/address confirmation, and terminal reveal also verifies the result.
+
+On initialization, validated existing jobs and archived checkpoints for the same wallet are imported in batches. Only their contiguous completed frontier and recorded matches count; attempts and unfinished positions do not. Invalid legacy jobs are left untouched and supply no reusable coverage. Migration can take time for a large historical search, but it does not rerun scrypt. New jobs use history automatically.
+
+SQLite uses WAL mode and full synchronization. Disk use grows with the number of distinct completed candidates and the database is not automatically pruned: deleting history loses reuse. Keep the entire private `search-history` directory together, including its digest key; copy it only while recovery is shut down so SQLite’s main file and WAL remain consistent. Settings snapshots still contain your private hints and should be protected along with the wallet.
 
 ## Reveal a match
 
@@ -106,6 +125,10 @@ An optional `--wallet "/absolute/path/to/wallet.json"` supplies a moved copy of 
 Runtime data defaults to `~/Library/Application Support/Ethereum Recovery/`. Set `--runtime-dir` or `RECOVERY_DATA_DIR` to use another location. Runtime directories must be private (`0700`); files use `0600`.
 
 ```text
+search-history/
+  checks.sqlite                # shared completed checks, live claims, migration progress
+  checks.sqlite-wal, checks.sqlite-shm # SQLite files while in use
+  digest-key.bin               # private HMAC key (keep with the database)
 last-setup.json                 # most recently prepared guided settings
 demo/demo-keystore.json         # generated demonstration wallet
 jobs/<jobId>/
@@ -128,22 +151,22 @@ Keep an independent backup of your keystore. Keep wallets, actual password hints
 | `server/index.js` | Loopback HTTP server, request protections, API routes, startup and shutdown |
 | `server/setupController.js` | Guided validation, preview, job preparation, saved setup, and UI operations |
 | `public/index.html`, `public/app.js`, `public/styles.css` | Buildless setup form, live dashboard, controls, and styling |
-| `server/recovery/guidedConfig.js` | Keyboard rules, exact counts, deduplicated word groups, and lazy indexed candidates |
+| `server/recovery/guidedConfig.js`, `maskSearch.js`, `searchAdvice.js` | Versioned rules, exact pattern-union counts, indexed candidates, coverage review, and duration advice |
 | `server/recovery/candidateGenerator.js` | Common candidate API and existing schema-v2 pattern generation |
 | `server/recovery/recoveryEngine.js`, `recoveryVerifierWorker.js` | Worker scheduling, contiguous progress, state transitions, speed, and ETA |
 | `server/recovery/walletVerifier.js` | Keystore validation, native scrypt/MAC checks, and final ethers confirmation |
 | `server/recovery/benchmark.js`, `benchmarkWorker.js` | Memory bounds and synchronized worker throughput measurements |
-| `server/recovery/jobStore.js`, `checkpoint.js`, `lockHolder.js` | Immutable jobs, compact plan persistence, atomic checkpoints, and per-job locks |
+| `server/recovery/jobStore.js`, `checkpoint.js`, `lockHolder.js`, `searchLedger.js` | Immutable jobs, checkpoints, per-job locks, SQLite reuse, concurrent claims, and historical migration |
 | `server/runtime.js` | Private runtime directories, bounded file reads, fingerprints, and atomic writes |
 | `server/configInit.js`, `server/reveal.js` | Legacy configuration creation and verified terminal reveal |
 | `data/patterns.example.json`, `wallet/.gitkeep` | Sanitized example configuration and wallet directory placeholder |
 | `test/`, `test/fixtures/`, `scripts/test.js` | Generator, verifier, persistence, HTTP, lifecycle, and recovery tests using isolated fixtures |
 
-Guided searches generate candidates on demand, without enumerating or storing the full search space. Counts remain exact up to JavaScript's safe integer limit, `9,007,199,254,740,991`. Only the bounded word combinations and layout metadata are held in memory. This makes large searches fast to prepare; the wallet's scrypt cost still determines verification speed.
+Guided searches generate candidates on demand without materializing the entire search space. Pattern unions use a bounded decision trie and BigInt counts; fragment jobs keep bounded pair/layout metadata. Executable indexes are limited to JavaScript’s safe integer range. The shared database stores only completed candidate outcomes, so storage grows with actual search work, not with the preview count.
 
 ## Existing CLI workflows and validation
 
-Existing schema-v2 pattern JSON, job identities, checkpoints, and reveal commands remain supported. Legacy patterns retain the 10,000,000-raw-candidate bound and their deduplicated integer index maps.
+Existing schema-v2 pattern JSON and guided configurations, job identities, candidate order, checkpoints, and reveal commands remain supported. New questionnaire jobs use schema v3. Restoring an old job preserves its rules; editing it into a new job explicitly removes the legacy shared-ending restriction and presents the new coverage review. Legacy patterns retain the 10,000,000-raw-candidate bound and their deduplicated integer index maps.
 
 ```bash
 npm run demo

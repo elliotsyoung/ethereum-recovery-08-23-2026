@@ -104,6 +104,7 @@ function createApp(engine, { sessionToken = crypto.randomBytes(32).toString('bas
 
   if (typeof engine.getSetup === 'function') {
     app.post('/api/setup/preview', operation((req) => engine.preview(req.body), 'preview'));
+    app.post('/api/setup/measure', operation((req) => engine.measure(req.body), 'measurement'));
     app.post('/api/setup/current', operation(() => engine.currentSetup(), 'selection'));
     app.post('/api/setup/configure', operation((req) => engine.configure(req.body)));
     app.post('/api/setup/restore', operation(() => engine.restore()));

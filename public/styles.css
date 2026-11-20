@@ -153,3 +153,29 @@ footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: c
 .restart-row .field-help { margin: 0; }
 .restart-row button { flex: 0 0 auto; }
 @media (max-width: 600px) { .restart-row { flex-direction: column; align-items: flex-start; gap: 12px; } }
+
+.coverage-intro { margin-top: 25px; padding: 18px 20px; border: 1px solid #536d49; border-radius: 8px; background: #21301e; }
+.coverage-intro p:not(.eyebrow) { color: #c8d9c0; font-size: .83rem; }
+.coverage-intro button { margin-top: 12px; }
+.memory-prompts { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.memory-prompts ol { margin: 14px 0 20px; padding-left: 20px; color: var(--muted); font-size: .76rem; }
+.memory-prompts li { margin-bottom: 10px; padding-left: 3px; }
+.memory-prompts strong { color: var(--text); font-weight: 500; }
+.mask-key { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 15px; margin-top: 20px; padding: 16px; background: var(--field); border-radius: 6px; }
+.mask-key dt { color: var(--accent); font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: .8rem; }
+.mask-key dd { color: var(--muted); font-size: .72rem; margin-top: 3px; }
+.hypothesis-note { padding: 15px 18px; margin-top: 22px; background: #302b1f; border: 1px solid #73603e; border-radius: 7px; color: #e7d6b7; font-size: .78rem; }
+.hypothesis-note strong { display: block; margin-bottom: 4px; }
+.preview-panel strong { overflow-wrap: anywhere; }
+.estimate-duration { font-size: 1.04rem; font-weight: 500; color: var(--accent); margin: 18px 0 8px; }
+.estimate-scenarios { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.estimate-scenarios p { border: 1px solid #46593e; padding: 8px 11px; border-radius: 5px; font-size: .76rem; }
+#measureBtn { margin-top: 13px; }
+.question-suggestions, .coverage-review { margin-top: 20px; padding-top: 18px; border-top: 1px solid #455b3d; }
+.question-suggestions ul, .coverage-review ul { padding-left: 18px; font-size: .77rem; color: #c3d2bc; }
+.question-suggestions li, .coverage-review li { margin-top: 9px; }
+.question-suggestions li strong { font-size: .78rem; letter-spacing: normal; font-weight: 500; }
+.question-suggestions li p { margin-top: 4px; color: var(--muted); }
+.coverage-review label { margin-top: 16px; align-items: flex-start; line-height: 1.6; color: var(--text); }
+.coverage-review input { flex: 0 0 16px; margin-top: 4px; }
+@media (max-width: 480px) { .mask-key { grid-template-columns: 1fr; } }

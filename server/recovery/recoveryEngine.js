@@ -11,6 +11,8 @@ const { candidateForUniqueIndex } = require('./candidateGenerator');
 const { BENCHMARK_VERSION, allowedWorkerCounts, runBenchmark } = require('./benchmark');
 const { loadCheckpoint, saveCheckpoint } = require('./checkpoint');
 const { confirmCandidate } = require('./walletVerifier');
+const { SearchLedger } = require('./searchLedger');
+const { importSearchHistory } = require('./jobStore');
 
 const CHECKPOINT_INTERVAL_MS = 15_000;
 const RATE_WINDOW_MS = 30_000;
@@ -40,6 +42,7 @@ class RecoveryEngine {
     this.state = job.checkpoint.state;
     this.nextCandidateIndex = job.checkpoint.nextCandidateIndex;
     this.totalVerified = job.checkpoint.totalVerified;
+    this.reusedCandidateCount = job.checkpoint.reusedCandidateCount || 0;
     this.activeElapsedMs = job.checkpoint.activeElapsedMs;
     this.startedAt = job.checkpoint.startedAt;
     this.lastCheckpointAt = job.checkpoint.lastCheckpointAt;
@@ -50,6 +53,10 @@ class RecoveryEngine {
     this.checkpointIntervalMs = checkpointIntervalMs;
     this.workers = [];
     this.inFlight = new Map();
+    this.claims = new Map();
+    this.scheduleTimer = null;
+    this.historyImport = null;
+    this.historyImported = false;
     this.completed = new Set();
     this.nextToAssign = this.nextCandidateIndex;
     this.rateSamples = [];
@@ -74,14 +81,24 @@ class RecoveryEngine {
       this.state = 'interrupted';
       this._checkpoint('interrupted');
     }
+    this.ledger = new SearchLedger(job.runtimeDir, job.wallet.walletHash);
   }
 
   async initialize() {
+    await this._ensureHistoryImported();
     const loaded = this._loadBenchmark();
     if (!loaded && !TERMINAL_STATES.has(this.state)) {
       await this.calibrate();
     }
     return this.getStatus();
+  }
+
+  async _ensureHistoryImported() {
+    if (this.historyImported) return;
+    this.historyImport = await importSearchHistory(this.ledger, this.job.runtimeDir, {
+      shouldStop: () => this.shuttingDown
+    });
+    this.historyImported = this.historyImport.completed;
   }
 
   _loadBenchmark() {
@@ -226,6 +243,7 @@ class RecoveryEngine {
       state,
       nextCandidateIndex: this.nextCandidateIndex,
       totalVerified: this.totalVerified,
+      reusedCandidateCount: this.reusedCandidateCount,
       activeElapsedMs: Math.round(this._activeElapsedNow()),
       startedAt: this.startedAt,
       lastCheckpointAt: checkpointAt,
@@ -233,6 +251,9 @@ class RecoveryEngine {
       errorCode: this.errorCode
     });
     this.lastCheckpointAt = checkpointAt;
+    // Every position below this frontier has a durable ledger result. Save the
+    // migration cursor so future launches need not regenerate this history.
+    if (this.historyImported) this.ledger?.recordCoverage(this.job.jobId, this.nextCandidateIndex);
     return saved;
   }
 
@@ -324,20 +345,67 @@ class RecoveryEngine {
 
   _schedule() {
     if (this.state !== 'running' || this.matchPending || this.shuttingDown) return;
+    let processed = 0;
     for (const worker of this.workers) {
       if (this.inFlight.has(worker)) continue;
-      if (this.nextToAssign >= this.job.candidatePlan.uniqueCount) break;
-      const index = this.nextToAssign;
-      this.nextToAssign += 1;
-      this.inFlight.set(worker, index);
-      try {
-        worker.postMessage({ type: 'verify', index });
-      } catch {
-        void this._fail('WORKER_FAILURE');
-        return;
+      while (this.nextToAssign < this.job.candidatePlan.uniqueCount) {
+        // Cached candidates can be millions long. Yield to HTTP/control work,
+        // and bound out-of-order coverage behind a slow in-flight candidate.
+        if (processed >= 256 || this.nextToAssign - this.nextCandidateIndex >= 1024) {
+          this._scheduleLater(processed >= 256 ? 0 : 100);
+          return;
+        }
+        const index = this.nextToAssign;
+        let digest;
+        let result;
+        try {
+          digest = this.ledger.digest(candidateForUniqueIndex(this.job.config, this.job.candidatePlan, index));
+          result = this.ledger.claim(digest);
+        } catch {
+          void this._fail('SEARCH_HISTORY_FAILED');
+          return;
+        }
+        if (result.status === 'busy') {
+          this._scheduleLater(100);
+          return;
+        }
+        this.nextToAssign += 1;
+        processed += 1;
+        if (result.status === 'complete') {
+          this.reusedCandidateCount += 1;
+          if (result.matched) {
+            void this._confirmMatch(index);
+            return;
+          }
+          this._markCompleted(index);
+          continue;
+        }
+        this.inFlight.set(worker, index);
+        this.claims.set(worker, digest);
+        try {
+          worker.postMessage({ type: 'verify', index });
+        } catch {
+          void this._fail('WORKER_FAILURE');
+          return;
+        }
+        break;
       }
     }
     this._finishIfExhausted();
+  }
+
+  _scheduleLater(delayMs) {
+    if (this.scheduleTimer) return;
+    this.scheduleTimer = setTimeout(() => {
+      this.scheduleTimer = null;
+      this._schedule();
+    }, delayMs);
+    this.scheduleTimer.unref();
+  }
+
+  _markCompleted(index) {
+    this.completed.add(index);
+    while (this.completed.delete(this.nextCandidateIndex)) this.nextCandidateIndex += 1;
   }
 
   _onWorkerMessage(worker, message) {
@@ -353,11 +421,20 @@ class RecoveryEngine {
       return;
     }
     const expectedIndex = this.inFlight.get(worker);
-    this.inFlight.delete(worker);
     if (message.index !== expectedIndex) {
       void this._fail('WORKER_PROTOCOL_ERROR');
       return;
     }
+    try {
+      // Commit the outcome before acknowledging progress. An interrupted
+      // checkpoint may replay indices, but it will reuse this recorded result.
+      this.ledger.complete(this.claims.get(worker), message.matched);
+    } catch {
+      void this._fail('SEARCH_HISTORY_WRITE_FAILED');
+      return;
+    }
+    this.inFlight.delete(worker);
+    this.claims.delete(worker);
 
     this.totalVerified += 1;
     this.segmentVerified += 1;
@@ -367,10 +444,7 @@ class RecoveryEngine {
       void this._confirmMatch(message.index);
       return;
     }
-    this.completed.add(message.index);
-    while (this.completed.delete(this.nextCandidateIndex)) {
-      this.nextCandidateIndex += 1;
-    }
+    this._markCompleted(message.index);
     this._schedule();
   }
 
@@ -476,10 +550,16 @@ class RecoveryEngine {
   async _terminateWorkers() {
     if (this.terminationPromise) return this.terminationPromise;
     const workers = this.workers.splice(0);
+    if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
+    this.scheduleTimer = null;
     this.inFlight.clear();
+    this.claims.clear();
     this.completed.clear();
     this.nextToAssign = this.nextCandidateIndex;
-    if (!workers.length) return undefined;
+    if (!workers.length) {
+      this._releaseClaims();
+      return undefined;
+    }
 
     this.terminationPromise = Promise.all(workers.map(async (worker) => {
       worker.removeAllListeners();
@@ -489,12 +569,20 @@ class RecoveryEngine {
         // A worker may already have exited after reporting a failure.
       }
     })).finally(() => {
+      this._releaseClaims();
       this.terminationPromise = null;
     });
     return this.terminationPromise;
   }
 
+  _releaseClaims() {
+    try { this.ledger?.releaseClaims(); }
+    catch { this.historyWarning = 'SEARCH_HISTORY_RELEASE_FAILED'; }
+  }
+
   async _begin(allowedStates) {
+    this._assertState(allowedStates);
+    await this._ensureHistoryImported();
     this._assertState(allowedStates);
     if (this.nextCandidateIndex >= this.job.candidatePlan.uniqueCount) {
       throw new RecoveryStateError('CANDIDATE_SPACE_EXHAUSTED');
@@ -508,6 +596,7 @@ class RecoveryEngine {
     this.segmentVerified = 0;
     this.nextToAssign = this.nextCandidateIndex;
     try {
+      this.ledger.releaseClaims();
       this._checkpoint('running');
       this._spawnWorkers();
     } catch {
@@ -587,7 +676,8 @@ class RecoveryEngine {
         }
       }
       this._stopCheckpointTimer();
-      await this._terminateWorkers();
+      try { await this._terminateWorkers(); }
+      finally { this.ledger.close(); }
       if (checkpointError) throw checkpointError;
     })();
     return this.shutdownPromise;
@@ -641,6 +731,9 @@ class RecoveryEngine {
       uniqueCandidateCount: uniqueCount,
       duplicatesRemoved: this.job.candidatePlan.duplicateCount,
       totalVerified: this.totalVerified,
+      reusedCandidateCount: this.reusedCandidateCount,
+      reuseEnabled: true,
+      historyImport: this.historyImport,
       searchedCandidateCount: progressIndex,
       remainingCandidateCount,
       uncommittedVerifiedCount: this.completed.size,
