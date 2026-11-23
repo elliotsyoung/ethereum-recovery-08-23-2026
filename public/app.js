@@ -343,7 +343,7 @@ function renderControls() {
   els.restartRow.hidden = !appState.setupEnabled || !appState.configured;
   els.restartBtn.disabled = !canEdit;
   els.restartBtn.textContent = appState.action === 'restart' ? 'Resetting…' : 'Restart from zero';
-  els.configureBtn.textContent = appState.action === 'configure' || state === 'preparing' ? 'Preparing…' : 'Prepare search →';
+  els.configureBtn.textContent = appState.action === 'configure' || state === 'preparing' ? 'Preparing…' : 'Prepare search';
   els.previewBtn.textContent = appState.previewPending ? 'Updating estimate…' : 'Update estimate';
   els.measureBtn.textContent = appState.action === 'measure' ? 'Measuring wallet…' : 'Measure wallet speed';
   els.restoreBtn.textContent = appState.action === 'restore' ? 'Restoring…' : 'Restore last search';
@@ -404,7 +404,7 @@ function renderStatus(status) {
   els.modeValue.hidden = !configured; els.modeValue.textContent = status.mode === 'DEMO' ? 'Demo' : 'Real wallet';
   els.readinessBadge.textContent = status.operationInProgress === 'benchmark' ? 'Measuring speed' : matchConfirming ? 'Verifying match' : titleCase(state);
   els.readinessBadge.dataset.state = state;
-  const headings = { ready: 'Ready when you are.', running: 'Checking possibilities.', paused: 'Progress saved. Take your time.', stopped: 'Stopped. Progress saved.', interrupted: 'Pick up where you left off.', found: 'A match. Verified.', exhausted: 'Selected search checked.', failed: 'Recovery needs attention.' };
+  const headings = { ready: 'Ready', running: 'Running', paused: 'Paused', stopped: 'Stopped', interrupted: 'Interrupted', found: 'Match found', exhausted: 'Complete', failed: 'Failed' };
   els.progressHeading.textContent = headings[state] || 'Preparing your search.';
   const total = Math.max(0, number(status.uniqueCandidateCount));
   const searched = Math.max(0, number(status.searchedCandidateCount ?? status.nextCandidateIndex ?? status.totalVerified));

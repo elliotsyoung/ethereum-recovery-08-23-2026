@@ -4,133 +4,139 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>Ethereum Recovery · Local workspace</title>
+    <title>Ethereum Recovery</title>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="Ethereum Recovery home"><span class="brand-mark" aria-hidden="true">◇</span><span>Ethereum Recovery<small>LOCAL WORKSPACE</small></span></a>
+        <a class="brand" href="/" aria-label="Ethereum Recovery home">
+          <span class="brand-mark" aria-hidden="true">◇</span>
+          <span>Ethereum Recovery</span>
+        </a>
         <span id="connectionValue" class="connection"><span class="status-dot" aria-hidden="true"></span>Connecting</span>
       </header>
 
       <div class="page-heading">
-        <div><p class="eyebrow">A smaller search. A clearer picture.</p><h1>Recover your wallet.</h1><p class="intro">Start with what you remember. Track every password checked.</p></div>
+        <h1>Wallet recovery</h1>
         <div class="header-status" aria-live="polite"><span id="modeValue" class="badge" hidden>—</span><span id="stateValue" class="badge">Getting ready</span></div>
       </div>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <div id="errorBanner" class="notice notice-error" role="alert" hidden></div>
 
       <section id="setupPanel" class="panel setup-panel" aria-labelledby="setupHeading" hidden>
-        <div class="section-heading"><div><p class="eyebrow">01 / Set up your search</p><h2 id="setupHeading">What do you remember?</h2></div><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
-        <div id="savedSetup" class="restore-row" hidden><p>Continue your last search with its saved settings and progress.</p><button id="restoreBtn" class="button-secondary" type="button">Restore last search</button></div>
+        <div class="section-heading"><h2 id="setupHeading">Search setup</h2><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
+        <div id="savedSetup" class="restore-row" hidden><p>Saved search available</p><button id="restoreBtn" class="button-secondary" type="button">Restore last search</button></div>
         <div id="setupSummary" class="setup-summary" hidden></div>
         <form id="setupForm" autocomplete="off">
           <fieldset id="setupFields">
-            <div class="form-section">
-              <div class="step-heading"><span class="step-number">1</span><div><h3>Choose your wallet</h3><p>Everything stays in this local workspace.</p></div></div>
+            <section class="form-section">
+              <h3 class="section-title">Wallet</h3>
               <div class="form-content">
-                <label for="modeInput">Recovery mode</label>
-                <select id="modeInput" name="mode"><option value="REAL">Recover my wallet</option><option value="DEMO">Try the demo</option></select>
-                <div id="walletField" class="field"><label for="walletInput">Keystore file path</label><input id="walletInput" name="walletPath" type="text" placeholder="/Users/you/Documents/wallet.json" spellcheck="false" autocapitalize="off" aria-describedby="walletHelp" /><p id="walletHelp" class="field-help">Paste the absolute path to your Ethereum V3 JSON keystore.</p></div>
-                <p id="demoHelp" class="field-help" hidden>The demo uses a test wallet with a known password and a small search.</p>
+                <div class="field-row"><label for="modeInput">Mode</label><select id="modeInput" name="mode"><option value="REAL">Recover my wallet</option><option value="DEMO">Try the demo</option></select></div>
+                <div id="walletField" class="field-row"><label for="walletInput">Keystore path</label><input id="walletInput" name="walletPath" type="text" placeholder="/Users/you/Documents/wallet.json" spellcheck="false" autocapitalize="off" /></div>
+                <p id="demoHelp" class="status-copy" hidden></p>
               </div>
-            </div>
+            </section>
+
             <div id="rulesFields">
-              <div class="coverage-intro"><p class="eyebrow">Remember first. Narrow only what you know.</p><p>English letters, digits, and keyboard punctuation, including space; at least 11 characters. Spelling and rhymes are never assumed. Leave uncertain positions open and include every possibility you still consider plausible.</p><button id="broadenBtn" class="button-quiet" type="button">Start again with unknown structure</button></div>
-              <p id="legacyNotice" class="notice" hidden>This saved search used older fragment rules. Its existing progress is unchanged. Preparing from this form creates a new search using the current rules, without any shared-ending restriction. Review all limits below.</p>
-              <div class="form-section">
-                <div class="step-heading"><span class="step-number">2</span><div><h3>What can you rule out?</h3><p>Answer from memory, not from example passwords. “Unknown” keeps the wider search.</p></div></div>
+              <div class="coverage-intro"><h3>Search coverage</h3><button id="broadenBtn" class="button-quiet" type="button">Reset to unknown</button></div>
+              <p id="legacyNotice" class="notice" hidden></p>
+
+              <section class="form-section">
+                <h3 class="section-title">Structure</h3>
                 <div class="form-content">
-                  <label for="searchModeInput">How much of the structure do you remember?</label>
-                  <select id="searchModeInput"><option value="mask">Unknown structure, or some exact characters / positions</option><option value="fragments">Try a specific two-fragment hypothesis</option></select>
-                  <div class="two-columns field"><div><label for="minLengthInput">Shortest possible password</label><input id="minLengthInput" type="number" min="11" max="64" step="1" value="11" required /></div><div><label for="maxLengthInput">Longest possible password</label><input id="maxLengthInput" type="number" min="11" max="64" step="1" value="64" required /></div></div>
-                  <p class="field-help">If length is uncertain, keep 11–64, the supported range. A tighter range excludes every password outside it.</p>
-                  <details class="memory-prompts" open><summary>Work through your memory before choosing filters</summary><ol>
-                    <li><strong>Length:</strong> do you remember a minimum, maximum, or several possible lengths? Use the entire plausible range.</li>
-                    <li><strong>Characters:</strong> what exact characters, misspellings, abbreviations, or keyboard sequences might have appeared? Keep alternatives.</li>
-                    <li><strong>Position:</strong> is a remembered piece definitely at the beginning, end, or a known position? If not, do not fix it there.</li>
-                    <li><strong>Case:</strong> could capitals be mixed, inside a fragment, or different between fragments? Do not infer Title case.</li>
-                    <li><strong>Numbers:</strong> could there be zero digits, leading zeroes, repeated digits, or more than one run? Do you know values or just a count?</li>
-                    <li><strong>Punctuation:</strong> could symbols be unshifted, different from each other, or between letters? Include every plausible symbol.</li>
-                    <li><strong>Structure:</strong> are two fragments and their order certain? Concatenated fragments cover only that hypothesis.</li>
-                  </ol><label for="memoryNotesInput">Uncertain memories <span class="optional">(optional, never used as filters)</span></label><textarea id="memoryNotesInput" rows="2" placeholder="Keep tentative ideas here while you compare search sizes." spellcheck="false"></textarea><p class="field-help">Notes stay in this tab and are not saved or sent to the search. Only the controls below change coverage.</p></details>
+                  <div class="field-row"><label for="searchModeInput">Search mode</label><select id="searchModeInput"><option value="mask">Unknown structure or exact positions</option><option value="fragments">Two letter fragments</option></select></div>
+                  <div class="two-columns">
+                    <div class="field-row"><label for="minLengthInput">Minimum length</label><input id="minLengthInput" type="number" min="11" max="64" step="1" value="11" required /></div>
+                    <div class="field-row"><label for="maxLengthInput">Maximum length</label><input id="maxLengthInput" type="number" min="11" max="64" step="1" value="64" required /></div>
+                  </div>
+                  <div class="field-row"><label for="memoryNotesInput">Memory notes</label><textarea id="memoryNotesInput" rows="2" placeholder="Optional notes; not used as filters." spellcheck="false"></textarea></div>
                 </div>
-              </div>
-              <div id="maskFields" class="form-section">
-                <div class="step-heading"><span class="step-number">3</span><div><h3>Keep unknown characters open</h3><p>No word list, dictionary, or rhyme rule is required.</p></div></div>
-                <div class="form-content"><label for="masksInput">Possible patterns <span class="optional">(one per line, blank means unknown)</span></label><textarea id="masksInput" class="mono" rows="4" placeholder="Leave blank to include all allowed characters at every selected length" spellcheck="false" autocapitalize="off" aria-describedby="maskHelp"></textarea><p id="maskHelp" class="field-help">Type only characters and positions you know. Literal letters preserve their exact case. Multiple lines include every listed alternative. Patterns are also limited by the length range above.</p>
-                  <dl class="mask-key"><div><dt>?x</dt><dd>Any allowed character</dd></div><div><dt>?a</dt><dd>Any English letter</dd></div><div><dt>?l / ?u</dt><dd>Lowercase / uppercase letter</dd></div><div><dt>?d / ?s</dt><dd>Digit / punctuation or space</dd></div><div><dt>??</dt><dd>Literal question mark</dd></div><div><dt>?x{3,8}</dt><dd>3–8 unknown characters</dd></div></dl>
-                  <p class="field-help">For example, an exact remembered prefix followed by unknown characters can be entered as <code>Prefix?x{5,58}</code>. Use that shape only if the prefix and its position are certain. Blank patterns include uppercase, lowercase, digits, and all 32 ASCII punctuation characters and space, in any order. Non-English letters are outside this search.</p>
+              </section>
+
+              <section id="maskFields" class="form-section">
+                <h3 class="section-title">Patterns</h3>
+                <div class="form-content">
+                  <div class="field-row"><label for="masksInput">Possible patterns</label><textarea id="masksInput" class="mono" rows="4" placeholder="One pattern per line; blank includes every allowed character." spellcheck="false" autocapitalize="off"></textarea></div>
+                  <dl class="mask-key"><div><dt>?x</dt><dd>Any character</dd></div><div><dt>?a</dt><dd>Any letter</dd></div><div><dt>?l / ?u</dt><dd>Lower / upper</dd></div><div><dt>?d / ?s</dt><dd>Digit / symbol</dd></div><div><dt>??</dt><dd>Literal ?</dd></div><div><dt>?x{3,8}</dt><dd>3–8 unknowns</dd></div></dl>
                 </div>
-              </div>
+              </section>
+
               <div id="fragmentFields" hidden>
-                <div class="hypothesis-note"><strong>A targeted hypothesis has limited coverage.</strong> This mode tries two supplied letter fragments, chosen capitalization styles, digits, and trailing symbols. It does not cover every character arrangement. Use the pattern mode for mixed case, symbols within fragments, or other arrangements.</div>
-                <div class="form-section">
-                  <div class="step-heading"><span class="step-number">3</span><div><h3>Which letter fragments are possible?</h3><p>Include misspellings and invented strings. No dictionary check is applied.</p></div></div>
+                <section class="form-section">
+                  <h3 class="section-title">Fragments</h3>
                   <div class="form-content">
-                    <div class="two-columns"><div><label for="firstWordsInput">First fragment possibilities</label><textarea id="firstWordsInput" rows="3" placeholder="Every plausible spelling" spellcheck="false" autocapitalize="off"></textarea></div><div><label for="secondWordsInput">Second fragment possibilities <span class="optional">(optional)</span></label><textarea id="secondWordsInput" rows="3" placeholder="Blank reuses the first list" spellcheck="false" autocapitalize="off"></textarea></div></div>
-                    <p class="field-help">Separate entries with spaces, commas, or new lines. A–Z and a–z, 1–32 letters, up to 200 distinct entries per list. Blank second list tries all pairings, including both orders and identical fragments. A separate second list fixes the order of the two lists.</p>
-                    <div class="range-grid"><div><label for="word1MinLenInput">First min letters</label><input id="word1MinLenInput" type="number" min="1" max="32" step="1" value="1" /></div><div><label for="word1MaxLenInput">First max letters</label><input id="word1MaxLenInput" type="number" min="1" max="32" step="1" value="32" /></div><div><label for="word2MinLenInput">Second min letters</label><input id="word2MinLenInput" type="number" min="1" max="32" step="1" value="1" /></div><div><label for="word2MaxLenInput">Second max letters</label><input id="word2MaxLenInput" type="number" min="1" max="32" step="1" value="32" /></div></div>
-                    <p class="field-help">Leave each range at 1–32 unless you can exclude other fragment lengths.</p>
-                    <label class="checkbox-inline field"><input id="requireDistinctInput" type="checkbox" /> I can exclude using the same fragment twice</label>
+                    <div class="two-columns">
+                      <div class="field-row"><label for="firstWordsInput">First list</label><textarea id="firstWordsInput" rows="3" placeholder="Possible spellings" spellcheck="false" autocapitalize="off"></textarea></div>
+                      <div class="field-row"><label for="secondWordsInput">Second list</label><textarea id="secondWordsInput" rows="3" placeholder="Optional; blank reuses the first list" spellcheck="false" autocapitalize="off"></textarea></div>
+                    </div>
+                    <div class="two-columns">
+                      <div class="field-row"><label for="word1MinLenInput">First min</label><input id="word1MinLenInput" type="number" min="1" max="32" step="1" value="1" /></div>
+                      <div class="field-row"><label for="word1MaxLenInput">First max</label><input id="word1MaxLenInput" type="number" min="1" max="32" step="1" value="32" /></div>
+                      <div class="field-row"><label for="word2MinLenInput">Second min</label><input id="word2MinLenInput" type="number" min="1" max="32" step="1" value="1" /></div>
+                      <div class="field-row"><label for="word2MaxLenInput">Second max</label><input id="word2MaxLenInput" type="number" min="1" max="32" step="1" value="32" /></div>
+                    </div>
+                    <label class="checkbox-inline"><input id="requireDistinctInput" type="checkbox" /> Exclude identical fragments</label>
                   </div>
-                </div>
-                <div class="form-section">
-                  <div class="step-heading"><span class="step-number">4</span><div><h3>What do you know about digits and symbols?</h3><p>Keep ranges wide when a count or value is uncertain.</p></div></div>
+                </section>
+
+                <section class="form-section">
+                  <h3 class="section-title">Digits and symbols</h3>
                   <div class="form-content">
-                    <div class="range-grid"><div><label for="minDigitsInput">Minimum digits</label><input id="minDigitsInput" type="number" min="0" max="12" step="1" value="0" /></div><div><label for="maxDigitsInput">Maximum digits</label><input id="maxDigitsInput" type="number" min="0" max="12" step="1" value="12" /></div><div><label for="minSymbolsInput">Minimum symbols</label><input id="minSymbolsInput" type="number" min="0" max="12" step="1" value="0" /></div><div><label for="maxSymbolsInput">Maximum symbols</label><input id="maxSymbolsInput" type="number" min="0" max="12" step="1" value="12" /></div></div>
-                    <p class="field-help">Counts of zero remain possible by default. This fragment mode supports at most 12 digits and 12 symbols. Use pattern mode for larger counts.</p>
-                    <div class="two-columns field"><div><label for="digitMinInput">Smallest possible digit value</label><input id="digitMinInput" type="number" min="0" max="999999999999" step="1" value="0" /></div><div><label for="digitMaxInput">Largest possible digit value <span class="optional">(blank = unknown)</span></label><input id="digitMaxInput" type="number" min="0" max="999999999999" step="1" placeholder="No extra limit" /></div></div>
-                    <p class="field-help">A value bound applies separately to every contiguous run of digits. Leading zeroes are included.</p>
-                    <div class="field"><label for="symbolPresetInput">Which punctuation can you rule out?</label><select id="symbolPresetInput"><option value="all">Unknown — all keyboard punctuation</option><option value="numberRow">Only shifted number-row keys</option><option value="shift15">Only ! @ # $ %</option><option value="custom">Use my exact set below</option></select></div>
-                    <div class="field"><label for="symbolsInput">Every possible punctuation character</label><input id="symbolsInput" type="text" spellcheck="false" autocapitalize="off" aria-describedby="symbolsHelp" /><p id="symbolsHelp" class="field-help">All 32 ASCII punctuation characters and space are allowed, including unshifted characters such as hyphen, equals, brackets, slash, and apostrophe. Removing a character excludes it entirely.</p></div>
-                    <div class="two-columns field"><div><label for="digitModeInput">Possible number combinations</label><select id="digitModeInput"><option value="all">All combinations, including repeats</option><option value="repeated">Only one repeated digit per run</option></select></div><div><label for="symbolModeInput">Possible symbol combinations</label><select id="symbolModeInput"><option value="all">All combinations, including repeats</option><option value="repeated">Only one repeated symbol</option></select></div></div>
-                    <fieldset class="choice-group"><legend>Which capitalization styles remain possible?</legend><div id="caseOptions" class="checkbox-grid"><label><input type="checkbox" name="caseStyle" value="title" checked /> Title case</label><label><input type="checkbox" name="caseStyle" value="lower" checked /> lowercase</label><label><input type="checkbox" name="caseStyle" value="upper" checked /> UPPERCASE</label><label><input type="checkbox" name="caseStyle" value="none" checked /> Exactly as entered</label></div></fieldset>
-                    <p class="field-help">Each style applies to both fragments together. “Exactly as entered” preserves the capitalization of each entry. These choices do not cover every mixed-case variation.</p>
-                    <fieldset class="choice-group"><legend>Which placements remain possible?</legend><div id="layoutOptions" class="checkbox-grid layout-options"></div><p class="field-help">Each selected layout is included. Symbols are a trailing group in all three layouts. Use pattern mode if another position is possible.</p></fieldset>
+                    <div class="two-columns">
+                      <div class="field-row"><label for="minDigitsInput">Minimum digits</label><input id="minDigitsInput" type="number" min="0" max="12" step="1" value="0" /></div>
+                      <div class="field-row"><label for="maxDigitsInput">Maximum digits</label><input id="maxDigitsInput" type="number" min="0" max="12" step="1" value="12" /></div>
+                      <div class="field-row"><label for="minSymbolsInput">Minimum symbols</label><input id="minSymbolsInput" type="number" min="0" max="12" step="1" value="0" /></div>
+                      <div class="field-row"><label for="maxSymbolsInput">Maximum symbols</label><input id="maxSymbolsInput" type="number" min="0" max="12" step="1" value="12" /></div>
+                      <div class="field-row"><label for="digitMinInput">Smallest digit</label><input id="digitMinInput" type="number" min="0" max="999999999999" step="1" value="0" /></div>
+                      <div class="field-row"><label for="digitMaxInput">Largest digit</label><input id="digitMaxInput" type="number" min="0" max="999999999999" step="1" placeholder="Unknown" /></div>
+                    </div>
+                    <div class="field-row"><label for="symbolPresetInput">Symbol set</label><select id="symbolPresetInput"><option value="all">All keyboard punctuation</option><option value="numberRow">Shifted number-row keys</option><option value="shift15">! @ # $ %</option><option value="custom">Custom set</option></select></div>
+                    <div class="field-row"><label for="symbolsInput">Possible symbols</label><input id="symbolsInput" type="text" spellcheck="false" autocapitalize="off" /></div>
+                    <div class="two-columns">
+                      <div class="field-row"><label for="digitModeInput">Digit combinations</label><select id="digitModeInput"><option value="all">All combinations</option><option value="repeated">One repeated digit per run</option></select></div>
+                      <div class="field-row"><label for="symbolModeInput">Symbol combinations</label><select id="symbolModeInput"><option value="all">All combinations</option><option value="repeated">One repeated symbol</option></select></div>
+                    </div>
+                    <fieldset class="choice-group"><legend>Capitalization</legend><div id="caseOptions" class="checkbox-grid"><label><input type="checkbox" name="caseStyle" value="title" checked /> Title case</label><label><input type="checkbox" name="caseStyle" value="lower" checked /> lowercase</label><label><input type="checkbox" name="caseStyle" value="upper" checked /> UPPERCASE</label><label><input type="checkbox" name="caseStyle" value="none" checked /> As entered</label></div></fieldset>
+                    <fieldset class="choice-group"><legend>Placement</legend><div id="layoutOptions" class="checkbox-grid"></div></fieldset>
                   </div>
-                </div>
+                </section>
               </div>
             </div>
           </fieldset>
-                  </div></details>
-                </div>
-              </div>
-            </div>
-          </fieldset>
+
           <div id="previewPanel" class="preview-panel" role="status" aria-live="polite" hidden>
-            <div><p class="eyebrow">Current search size</p><strong id="previewCount">—</strong><span class="muted"> passwords</span></div>
-            <p id="previewDetails" class="field-help"></p><p id="previewDuration" class="estimate-duration"></p><div id="estimateScenarios" class="estimate-scenarios"></div>
-            <p id="measurementHelp" class="field-help">Measure this wallet on your machine for a useful time estimate. Illustrative rates are not a forecast.</p><button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
+            <div class="preview-total"><strong id="previewCount">—</strong><span> passwords</span></div>
+            <p id="previewDetails" class="status-copy"></p><p id="previewDuration" class="estimate-duration"></p><div id="estimateScenarios" class="estimate-scenarios"></div>
+            <p id="measurementHelp" class="status-copy">Measure wallet speed for an estimate.</p><button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
             <ul id="previewWarnings" class="preview-warnings" hidden></ul>
-            <div id="questionSuggestions" class="question-suggestions" hidden><h3>Information that could save the most time</h3><ul id="suggestionList"></ul><p class="field-help">These are prompts to recall information. They do not change any filter.</p></div>
-            <div id="coveragePanel" class="coverage-review"><h3>Review what this search includes</h3><ul id="coverageList"></ul><label class="checkbox-inline"><input id="coverageConfirm" type="checkbox" /> I reviewed this coverage and the exclusions. Prepare this selection.</label></div>
+            <div id="questionSuggestions" class="question-suggestions" hidden><h3>Potentially useful details</h3><ul id="suggestionList"></ul></div>
+            <div id="coveragePanel" class="coverage-review"><h3>Coverage review</h3><ul id="coverageList"></ul><label class="checkbox-inline"><input id="coverageConfirm" type="checkbox" /> Confirm this coverage</label></div>
           </div>
-          <div class="setup-actions"><p id="setupHint" class="field-help">Compare the search size and time as you answer, then review coverage.</p><div class="button-row"><button id="previewBtn" class="button-secondary" type="button">Preview search</button><button id="configureBtn" type="submit">Prepare search <span aria-hidden="true">→</span></button></div></div>
+          <div class="setup-actions"><p id="setupHint" class="status-copy">Review the estimate and coverage before preparing.</p><div class="button-row"><button id="previewBtn" class="button-secondary" type="button">Update estimate</button><button id="configureBtn" type="submit">Prepare search</button></div></div>
         </form>
       </section>
 
       <section id="progressPanel" class="panel progress-panel" aria-labelledby="progressHeading" hidden>
-        <div class="section-heading"><div><p class="eyebrow">02 / Recovery</p><h2 id="progressHeading">Ready when you are.</h2></div><span id="readinessBadge" class="badge">Ready</span></div>
+        <div class="section-heading"><h2 id="progressHeading">Recovery</h2><span id="readinessBadge" class="badge">Ready</span></div>
         <div id="resultBanner" class="result-banner" role="status" aria-live="polite" hidden></div>
         <div class="primary-stats"><div><p class="stat-label">Passwords searched</p><strong id="verifiedValue" class="big-number">0</strong></div><div class="remaining-stat"><p class="stat-label">Remaining</p><strong id="remainingValue" class="big-number">0</strong></div></div>
         <div id="progressTrack" class="progress-track" role="progressbar" aria-label="Password search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressBar" class="progress-fill"></div></div>
-        <div class="progress-copy"><span><strong id="completeValue">0.00%</strong> complete</span><span><strong id="uniqueTotalValue">0</strong> total passwords</span></div>
+        <div class="progress-copy"><span><strong id="completeValue">0.00%</strong> complete</span><span><strong id="uniqueTotalValue">0</strong> total</span></div>
         <dl class="live-stats"><div><dt>Current speed</dt><dd><span id="rateValue">—</span><span class="stat-unit"> / sec</span></dd></div><div><dt>Time running</dt><dd id="elapsedValue">0s</dd></div><div><dt>Estimated time left</dt><dd id="etaValue">—</dd></div><div><dt>Expected finish</dt><dd id="finishValue">—</dd></div></dl>
-        <p id="etaHelp" class="field-help">The estimate covers the entire remaining search at the measured speed. A match may appear sooner.</p>
-        <div id="controls" class="button-row" role="group" aria-label="Recovery controls"><button id="startBtn" type="button">Start recovery <span aria-hidden="true">→</span></button><button id="pauseBtn" class="button-secondary" type="button">Pause</button><button id="resumeBtn" type="button">Resume</button><button id="stopBtn" class="button-quiet" type="button">Stop</button><button id="benchmarkBtn" class="button-quiet push-right" type="button">Measure speed</button></div>
-        <p id="controlHelp" class="field-help control-help">Pausing or stopping saves your progress. You can resume later.</p>
+        <p id="etaHelp" class="status-copy">Estimate unavailable.</p>
+        <div id="controls" class="button-row" role="group" aria-label="Recovery controls"><button id="startBtn" type="button">Start recovery</button><button id="pauseBtn" class="button-secondary" type="button">Pause</button><button id="resumeBtn" type="button">Resume</button><button id="stopBtn" class="button-quiet" type="button">Stop</button><button id="benchmarkBtn" class="button-quiet push-right" type="button">Measure speed</button></div>
+        <p id="controlHelp" class="status-copy control-help">Progress is saved with each control action.</p>
       </section>
 
       <section id="detailsPanel" class="panel detail-panel" aria-label="Search details" hidden>
-        <div class="section-heading"><div><p class="eyebrow">Search details</p><h2>Behind the numbers</h2></div><span id="workersValue" class="muted">0 workers</span></div>
-        <p id="benchmarkSummary" class="field-help">Speed will be measured on this machine.</p>
-        <details class="job-details"><summary>Job &amp; saved progress</summary><dl class="detail-grid"><div><dt>Job ID</dt><dd id="jobIdValue" class="mono">—</dd></div><div><dt>Checkpoint</dt><dd id="checkpointValue">—</dd></div><div><dt>Unique passwords</dt><dd id="uniqueCountValue">0</dd></div><div><dt>Duplicates removed</dt><dd id="duplicatesValue">0</dd></div><div><dt>Contiguous checked position</dt><dd id="nextIndexValue">0</dd></div><div><dt>New verification attempts</dt><dd id="attemptsValue">0</dd></div><div><dt>Completed checks reused</dt><dd id="reusedValue">0</dd></div><div><dt>Last error</dt><dd id="errorValue">None</dd></div></dl></details>
-        <div id="restartRow" class="restart-row" hidden><p class="field-help">Restarting archives the checkpoint and resets this job’s position. Completed checks remain reusable across searches.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
+        <div class="section-heading"><h2>Search details</h2><span id="workersValue" class="muted">0 workers</span></div>
+        <p id="benchmarkSummary" class="status-copy">Speed will be measured on this machine.</p>
+        <details class="job-details"><summary>Job and saved progress</summary><dl class="detail-grid"><div><dt>Job ID</dt><dd id="jobIdValue" class="mono">—</dd></div><div><dt>Checkpoint</dt><dd id="checkpointValue">—</dd></div><div><dt>Unique passwords</dt><dd id="uniqueCountValue">0</dd></div><div><dt>Duplicates removed</dt><dd id="duplicatesValue">0</dd></div><div><dt>Contiguous checked position</dt><dd id="nextIndexValue">0</dd></div><div><dt>New verification attempts</dt><dd id="attemptsValue">0</dd></div><div><dt>Completed checks reused</dt><dd id="reusedValue">0</dd></div><div><dt>Last error</dt><dd id="errorValue">None</dd></div></dl></details>
+        <div id="restartRow" class="restart-row" hidden><p class="status-copy">Completed checks remain reusable after a reset.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
       </section>
-      <footer><span class="status-dot" aria-hidden="true"></span> Runs on your machine <span class="footer-divider">·</span> Progress is saved locally <span class="footer-divider">·</span> No wallet connection needed</footer>
     </main>
   </body>
 </html>
