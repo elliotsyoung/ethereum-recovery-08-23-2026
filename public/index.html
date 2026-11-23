@@ -19,15 +19,18 @@
       </header>
 
       <div class="page-heading">
-        <h1>Wallet recovery</h1>
+        <div>
+          <p class="eyebrow">LOCAL WALLET TOOL</p>
+          <h1>Wallet recovery</h1>
+        </div>
         <div class="header-status" aria-live="polite"><span id="modeValue" class="badge" hidden>—</span><span id="stateValue" class="badge">Getting ready</span></div>
       </div>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <div id="errorBanner" class="notice notice-error" role="alert" hidden></div>
 
       <section id="setupPanel" class="panel setup-panel" aria-labelledby="setupHeading" hidden>
-        <div class="section-heading"><h2 id="setupHeading">Search setup</h2><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
-        <div id="savedSetup" class="restore-row" hidden><p>Saved search available</p><button id="restoreBtn" class="button-secondary" type="button">Restore last search</button></div>
+        <div class="section-heading"><h2 id="setupHeading">Set up a search</h2><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
+        <div id="savedSetup" class="restore-row" hidden><p>Saved search</p><button id="restoreBtn" class="button-secondary" type="button">Restore</button></div>
         <div id="setupSummary" class="setup-summary" hidden></div>
         <form id="setupForm" autocomplete="off">
           <fieldset id="setupFields">
@@ -35,13 +38,13 @@
               <h3 class="section-title">Wallet</h3>
               <div class="form-content">
                 <div class="field-row"><label for="modeInput">Mode</label><select id="modeInput" name="mode"><option value="REAL">Recover my wallet</option><option value="DEMO">Try the demo</option></select></div>
-                <div id="walletField" class="field-row"><label for="walletInput">Keystore path</label><input id="walletInput" name="walletPath" type="text" placeholder="/Users/you/Documents/wallet.json" spellcheck="false" autocapitalize="off" /></div>
+                <div id="walletField" class="field-row"><label for="walletInput">Wallet file</label><input id="walletInput" name="walletPath" type="text" placeholder="/Users/you/Documents/wallet.json" spellcheck="false" autocapitalize="off" /></div>
                 <p id="demoHelp" class="status-copy" hidden></p>
               </div>
             </section>
 
             <div id="rulesFields">
-              <div class="coverage-intro"><h3>Search coverage</h3><button id="broadenBtn" class="button-quiet" type="button">Reset to unknown</button></div>
+              <div class="coverage-intro"><div><h3>Search coverage</h3><p>Keep uncertain details open.</p></div><button id="broadenBtn" class="button-quiet" type="button">Start broad</button></div>
               <p id="legacyNotice" class="notice" hidden></p>
 
               <section class="form-section">
@@ -52,15 +55,15 @@
                     <div class="field-row"><label for="minLengthInput">Minimum length</label><input id="minLengthInput" type="number" min="11" max="64" step="1" value="11" required /></div>
                     <div class="field-row"><label for="maxLengthInput">Maximum length</label><input id="maxLengthInput" type="number" min="11" max="64" step="1" value="64" required /></div>
                   </div>
-                  <div class="field-row"><label for="memoryNotesInput">Memory notes</label><textarea id="memoryNotesInput" rows="2" placeholder="Optional notes; not used as filters." spellcheck="false"></textarea></div>
+                  <details class="optional-details"><summary>Add a private note</summary><div class="field-row"><label for="memoryNotesInput">Memory note</label><textarea id="memoryNotesInput" rows="2" placeholder="Optional reminder" spellcheck="false"></textarea></div></details>
                 </div>
               </section>
 
               <section id="maskFields" class="form-section">
                 <h3 class="section-title">Patterns</h3>
                 <div class="form-content">
-                  <div class="field-row"><label for="masksInput">Possible patterns</label><textarea id="masksInput" class="mono" rows="4" placeholder="One pattern per line; blank includes every allowed character." spellcheck="false" autocapitalize="off"></textarea></div>
-                  <dl class="mask-key"><div><dt>?x</dt><dd>Any character</dd></div><div><dt>?a</dt><dd>Any letter</dd></div><div><dt>?l / ?u</dt><dd>Lower / upper</dd></div><div><dt>?d / ?s</dt><dd>Digit / symbol</dd></div><div><dt>??</dt><dd>Literal ?</dd></div><div><dt>?x{3,8}</dt><dd>3–8 unknowns</dd></div></dl>
+                  <div class="field-row"><label for="masksInput">Patterns</label><textarea id="masksInput" class="mono" rows="4" placeholder="One pattern per line" spellcheck="false" autocapitalize="off"></textarea></div>
+                  <details class="help-details"><summary>Pattern symbols</summary><dl class="mask-key"><div><dt>?x</dt><dd>Any character</dd></div><div><dt>?a</dt><dd>Any letter</dd></div><div><dt>?l / ?u</dt><dd>Lower / upper</dd></div><div><dt>?d / ?s</dt><dd>Digit / symbol</dd></div><div><dt>??</dt><dd>Literal ?</dd></div><div><dt>?x{3,8}</dt><dd>3–8 unknowns</dd></div></dl></details>
                 </div>
               </section>
 
@@ -82,9 +85,11 @@
                   </div>
                 </section>
 
-                <section class="form-section">
-                  <h3 class="section-title">Digits and symbols</h3>
-                  <div class="form-content">
+                <details class="advanced-options">
+                  <summary>More filters</summary>
+                  <section class="form-section">
+                    <h3 class="section-title">Digits and symbols</h3>
+                    <div class="form-content">
                     <div class="two-columns">
                       <div class="field-row"><label for="minDigitsInput">Minimum digits</label><input id="minDigitsInput" type="number" min="0" max="12" step="1" value="0" /></div>
                       <div class="field-row"><label for="maxDigitsInput">Maximum digits</label><input id="maxDigitsInput" type="number" min="0" max="12" step="1" value="12" /></div>
@@ -101,41 +106,42 @@
                     </div>
                     <fieldset class="choice-group"><legend>Capitalization</legend><div id="caseOptions" class="checkbox-grid"><label><input type="checkbox" name="caseStyle" value="title" checked /> Title case</label><label><input type="checkbox" name="caseStyle" value="lower" checked /> lowercase</label><label><input type="checkbox" name="caseStyle" value="upper" checked /> UPPERCASE</label><label><input type="checkbox" name="caseStyle" value="none" checked /> As entered</label></div></fieldset>
                     <fieldset class="choice-group"><legend>Placement</legend><div id="layoutOptions" class="checkbox-grid"></div></fieldset>
-                  </div>
-                </section>
+                    </div>
+                  </section>
+                </details>
               </div>
             </div>
           </fieldset>
 
           <div id="previewPanel" class="preview-panel" role="status" aria-live="polite" hidden>
-            <div class="preview-total"><strong id="previewCount">—</strong><span> passwords</span></div>
+            <div class="preview-heading"><div><p class="eyebrow">ESTIMATE</p><h3>Search size</h3></div><div class="preview-total"><strong id="previewCount">—</strong><span>possible passwords</span></div></div>
             <p id="previewDetails" class="status-copy"></p><p id="previewDuration" class="estimate-duration"></p><div id="estimateScenarios" class="estimate-scenarios"></div>
-            <p id="measurementHelp" class="status-copy">Measure wallet speed for an estimate.</p><button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
+            <p id="measurementHelp" class="status-copy">Measure wallet speed for a better estimate.</p><button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
             <ul id="previewWarnings" class="preview-warnings" hidden></ul>
-            <div id="questionSuggestions" class="question-suggestions" hidden><h3>Potentially useful details</h3><ul id="suggestionList"></ul></div>
-            <div id="coveragePanel" class="coverage-review"><h3>Coverage review</h3><ul id="coverageList"></ul><label class="checkbox-inline"><input id="coverageConfirm" type="checkbox" /> Confirm this coverage</label></div>
+            <div id="questionSuggestions" class="question-suggestions" hidden><h3>Useful reminders</h3><ul id="suggestionList"></ul></div>
+            <div id="coveragePanel" class="coverage-review"><h3>Check your coverage</h3><ul id="coverageList"></ul><label class="checkbox-inline"><input id="coverageConfirm" type="checkbox" /> I’ve reviewed this coverage</label></div>
           </div>
-          <div class="setup-actions"><p id="setupHint" class="status-copy">Review the estimate and coverage before preparing.</p><div class="button-row"><button id="previewBtn" class="button-secondary" type="button">Update estimate</button><button id="configureBtn" type="submit">Prepare search</button></div></div>
+          <div class="setup-actions"><p id="setupHint" class="status-copy">Review coverage, then prepare.</p><div class="button-row"><button id="previewBtn" class="button-secondary" type="button">Update estimate</button><button id="configureBtn" type="submit">Prepare search</button></div></div>
         </form>
       </section>
 
       <section id="progressPanel" class="panel progress-panel" aria-labelledby="progressHeading" hidden>
         <div class="section-heading"><h2 id="progressHeading">Recovery</h2><span id="readinessBadge" class="badge">Ready</span></div>
         <div id="resultBanner" class="result-banner" role="status" aria-live="polite" hidden></div>
-        <div class="primary-stats"><div><p class="stat-label">Passwords searched</p><strong id="verifiedValue" class="big-number">0</strong></div><div class="remaining-stat"><p class="stat-label">Remaining</p><strong id="remainingValue" class="big-number">0</strong></div></div>
+        <div class="primary-stats"><div><p class="stat-label">Checked</p><strong id="verifiedValue" class="big-number">0</strong></div><div class="remaining-stat"><p class="stat-label">Remaining</p><strong id="remainingValue" class="big-number">0</strong></div></div>
         <div id="progressTrack" class="progress-track" role="progressbar" aria-label="Password search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressBar" class="progress-fill"></div></div>
         <div class="progress-copy"><span><strong id="completeValue">0.00%</strong> complete</span><span><strong id="uniqueTotalValue">0</strong> total</span></div>
-        <dl class="live-stats"><div><dt>Current speed</dt><dd><span id="rateValue">—</span><span class="stat-unit"> / sec</span></dd></div><div><dt>Time running</dt><dd id="elapsedValue">0s</dd></div><div><dt>Estimated time left</dt><dd id="etaValue">—</dd></div><div><dt>Expected finish</dt><dd id="finishValue">—</dd></div></dl>
-        <p id="etaHelp" class="status-copy">Estimate unavailable.</p>
+        <dl class="live-stats"><div><dt>Speed</dt><dd><span id="rateValue">—</span><span class="stat-unit"> / sec</span></dd></div><div><dt>Time</dt><dd id="elapsedValue">0s</dd></div><div><dt>Time left</dt><dd id="etaValue">—</dd></div><div><dt>Finish</dt><dd id="finishValue">—</dd></div></dl>
+        <p id="etaHelp" class="status-copy">Rough estimate based on recent speed.</p>
         <div id="controls" class="button-row" role="group" aria-label="Recovery controls"><button id="startBtn" type="button">Start recovery</button><button id="pauseBtn" class="button-secondary" type="button">Pause</button><button id="resumeBtn" type="button">Resume</button><button id="stopBtn" class="button-quiet" type="button">Stop</button><button id="benchmarkBtn" class="button-quiet push-right" type="button">Measure speed</button></div>
-        <p id="controlHelp" class="status-copy control-help">Progress is saved with each control action.</p>
+        <p id="controlHelp" class="status-copy control-help">Progress saves automatically.</p>
       </section>
 
       <section id="detailsPanel" class="panel detail-panel" aria-label="Search details" hidden>
-        <div class="section-heading"><h2>Search details</h2><span id="workersValue" class="muted">0 workers</span></div>
+        <div class="section-heading"><h2>Details</h2><span id="workersValue" class="muted">0 workers</span></div>
         <p id="benchmarkSummary" class="status-copy">Speed will be measured on this machine.</p>
-        <details class="job-details"><summary>Job and saved progress</summary><dl class="detail-grid"><div><dt>Job ID</dt><dd id="jobIdValue" class="mono">—</dd></div><div><dt>Checkpoint</dt><dd id="checkpointValue">—</dd></div><div><dt>Unique passwords</dt><dd id="uniqueCountValue">0</dd></div><div><dt>Duplicates removed</dt><dd id="duplicatesValue">0</dd></div><div><dt>Contiguous checked position</dt><dd id="nextIndexValue">0</dd></div><div><dt>New verification attempts</dt><dd id="attemptsValue">0</dd></div><div><dt>Completed checks reused</dt><dd id="reusedValue">0</dd></div><div><dt>Last error</dt><dd id="errorValue">None</dd></div></dl></details>
-        <div id="restartRow" class="restart-row" hidden><p class="status-copy">Completed checks remain reusable after a reset.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
+        <details class="job-details"><summary>Saved search details</summary><dl class="detail-grid"><div><dt>Job ID</dt><dd id="jobIdValue" class="mono">—</dd></div><div><dt>Checkpoint</dt><dd id="checkpointValue">—</dd></div><div><dt>Unique passwords</dt><dd id="uniqueCountValue">0</dd></div><div><dt>Duplicates removed</dt><dd id="duplicatesValue">0</dd></div><div><dt>Contiguous checked position</dt><dd id="nextIndexValue">0</dd></div><div><dt>New verification attempts</dt><dd id="attemptsValue">0</dd></div><div><dt>Completed checks reused</dt><dd id="reusedValue">0</dd></div><div><dt>Last error</dt><dd id="errorValue">None</dd></div></dl></details>
+        <div id="restartRow" class="restart-row" hidden><p class="status-copy">Saved progress can be reused.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
       </section>
     </main>
   </body>

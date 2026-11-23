@@ -257,15 +257,15 @@ function renderPreview(preview) {
   els.previewPanel.hidden = false;
   els.previewCount.textContent = formatNumber(preview.candidateCountExact ?? preview.uniqueCandidateCount);
   const duplicateCount = number(preview.duplicatesRemoved);
-  els.previewDetails.textContent = `${duplicateCount > 0 ? `${formatNumber(duplicateCount)} duplicate passwords removed. ` : ''}Full selected search before reuse of completed checks. A match could appear sooner; this is not a prediction of when it will appear.`;
+  els.previewDetails.textContent = `${duplicateCount > 0 ? `${formatNumber(duplicateCount)} duplicates removed. ` : ''}Candidate count for this search.`;
   const estimate = preview.estimate || {};
   const measured = estimate.source === 'measured' && number(estimate.guessesPerSecond) > 0;
   els.previewDuration.textContent = measured
-    ? `${duration(estimate.seconds)} for the full search at ${formatRate(estimate.guessesPerSecond)} checks/sec`
-    : 'Measure your wallet to estimate the time on this machine.';
+    ? `Full search: ${duration(estimate.seconds)} at ${formatRate(estimate.guessesPerSecond)} checks/sec`
+    : 'Measure wallet speed for a time estimate.';
   els.measurementHelp.textContent = measured
-    ? 'Based on this wallet’s measured verification speed. Machine load, reuse lookups, and future changes can affect duration.'
-    : 'Illustrative rates below show scale only. They are not a forecast for your wallet.';
+    ? 'Uses this wallet’s measured speed.'
+    : 'Illustrative rates are not a forecast.';
   els.estimateScenarios.replaceChildren();
   if (!measured) {
     for (const scenario of Array.isArray(estimate.scenarios) ? estimate.scenarios : []) {
@@ -276,11 +276,11 @@ function renderPreview(preview) {
   }
   els.previewWarnings.replaceChildren();
   const warnings = Array.isArray(preview.warnings) ? preview.warnings.filter((item) => typeof item === 'string') : [];
-  if (preview.runnable === false) warnings.unshift('This search cannot be started within the supported candidate limit. More reliable information is needed; do not remove uncertain possibilities just to make the number smaller.');
+  if (preview.runnable === false) warnings.unshift('This search cannot be started yet. Keep uncertain details open.');
   for (const warning of warnings) { const item = document.createElement('li'); item.textContent = warning; els.previewWarnings.append(item); }
   els.previewWarnings.hidden = !warnings.length;
   els.coverageList.replaceChildren();
-  const coverage = Array.isArray(preview.coverage) ? preview.coverage : ['Only the patterns, lengths, character choices, and arrangements selected above are included.'];
+  const coverage = Array.isArray(preview.coverage) ? preview.coverage : ['Only the choices above are included.'];
   for (const text of coverage) {
     if (typeof text !== 'string') continue;
     const item = document.createElement('li'); item.textContent = text; els.coverageList.append(item);
@@ -289,8 +289,9 @@ function renderPreview(preview) {
   for (const question of Array.isArray(preview.questions) ? preview.questions : []) {
     if (typeof question.prompt !== 'string') continue;
     const item = document.createElement('li'); const prompt = document.createElement('strong'); prompt.textContent = question.prompt;
-    const reason = document.createElement('p'); reason.textContent = question.reason || '';
-    item.append(prompt, reason); els.suggestionList.append(item);
+    item.append(prompt);
+    if (question.reason) { const reason = document.createElement('p'); reason.textContent = question.reason; item.append(reason); }
+    els.suggestionList.append(item);
   }
   els.questionSuggestions.hidden = !els.suggestionList.children.length;
 }
@@ -346,31 +347,31 @@ function renderControls() {
   els.configureBtn.textContent = appState.action === 'configure' || state === 'preparing' ? 'Preparing…' : 'Prepare search';
   els.previewBtn.textContent = appState.previewPending ? 'Updating estimate…' : 'Update estimate';
   els.measureBtn.textContent = appState.action === 'measure' ? 'Measuring wallet…' : 'Measure wallet speed';
-  els.restoreBtn.textContent = appState.action === 'restore' ? 'Restoring…' : 'Restore last search';
+  els.restoreBtn.textContent = appState.action === 'restore' ? 'Restoring…' : 'Restore';
   const preparation = state === 'preparing' || ['configure', 'restore'].includes(appState.action);
   els.setupHint.textContent = preparation
-    ? `${appState.status?.setupPhase || 'Preparing your search'}… This may take a moment while wallet speed is measured.`
-    : appState.preview?.runnable === false ? 'Keep uncertain possibilities open. The questions above may help you remember useful limits.'
-      : 'The estimate updates as you answer. Review coverage and select the checkbox before preparing.';
+    ? 'Preparing…'
+    : appState.preview?.runnable === false ? 'Keep uncertain details open.'
+      : 'Review coverage, then prepare.';
 }
 function renderSetup() {
   els.setupPanel.hidden = !appState.setupEnabled;
   els.setupForm.hidden = appState.configured && !appState.editing;
   els.setupSummary.hidden = !appState.configured || appState.editing;
-  els.setupSummary.textContent = `${appState.status?.mode === 'DEMO' ? 'Demo wallet' : 'Wallet configured'} · ${formatNumber(appState.status?.uniqueCandidateCount)} passwords in this search. Your settings and progress are saved locally.`;
+  els.setupSummary.textContent = `${appState.status?.mode === 'DEMO' ? 'Demo wallet' : 'Wallet configured'} · ${formatNumber(appState.status?.uniqueCandidateCount)} passwords.`;
   els.savedSetup.hidden = !appState.savedJobAvailable || appState.configured;
   renderControls();
 }
 function renderBenchmark(status) {
   const benchmark = status.benchmark;
   if (status.operationInProgress === 'benchmark' || benchmark?.running || benchmark?.state === 'running') {
-    els.benchmarkSummary.textContent = 'Measuring your wallet’s encryption cost to choose the fastest worker count…'; return;
+    els.benchmarkSummary.textContent = 'Measuring wallet speed…'; return;
   }
   const workerCount = number(benchmark?.selectedWorkerCount ?? benchmark?.selectedWorkers ?? benchmark?.workerCount ?? status.selectedWorkers ?? status.activeWorkers);
   const rate = number(benchmark?.guessesPerSecond);
   els.benchmarkSummary.textContent = rate > 0
-    ? `${formatNumber(workerCount)} worker${workerCount === 1 ? '' : 's'} selected · ${formatRate(rate)} passwords/sec measured on this wallet. Running speed varies with system load.`
-    : 'Speed is based on this wallet’s encryption cost and your machine. Running speed varies with system load.';
+    ? `${formatNumber(workerCount)} worker${workerCount === 1 ? '' : 's'} · ${formatRate(rate)} passwords/sec`
+    : 'Speed will be measured on this machine.';
 }
 function renderResult(status) {
   const state = status.state;
@@ -381,15 +382,15 @@ function renderResult(status) {
   els.resultBanner.dataset.command = String(status.revealCommand || '');
   els.resultBanner.replaceChildren();
   if (state === 'found') {
-    const text = document.createElement('p'); text.textContent = 'Password found and verified. Reveal it in the terminal with this command:';
+    const text = document.createElement('p'); text.textContent = 'Password found. Reveal it in the terminal:';
     const command = document.createElement('code');
     command.textContent = typeof status.revealCommand === 'string' ? status.revealCommand : `npm run reveal -- --job ${status.jobId}`;
-    const help = document.createElement('p'); help.textContent = 'The password stays out of the dashboard. Keep the reveal output private.';
+    const help = document.createElement('p'); help.textContent = 'The password stays private.';
     els.resultBanner.append(text, command, help);
   } else if (state === 'exhausted') {
-    els.resultBanner.textContent = 'Every candidate in this selection was covered with no match. Review the exclusions and add other patterns, spelling variants, positions, or broader character choices. Completed checks can be reused in the next search.';
+    els.resultBanner.textContent = 'No match in this selection. Review exclusions or add more possibilities. Saved checks can be reused.';
   } else if (state === 'failed') {
-    els.resultBanner.textContent = 'Recovery stopped after an error. Your last saved position is kept. Check the error below and the local terminal before retrying.';
+    els.resultBanner.textContent = 'Recovery stopped. Your last saved position is kept.';
   }
 }
 function renderStatus(status) {
@@ -427,7 +428,7 @@ function renderStatus(status) {
     els.finishValue.textContent = date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', ...(eta > 31557600 ? { year: 'numeric' } : {}) });
   } else els.finishValue.textContent = state === 'running' && eta !== null && eta !== undefined ? 'Beyond date range' : finished ? 'Complete' : ['paused', 'stopped', 'interrupted'].includes(state) ? 'When resumed' : 'After starting';
   const source = status.estimateSource === 'benchmark' ? 'Based on the wallet speed benchmark' : status.estimateSource === 'average' ? 'Based on average active speed' : 'Based on recent speed';
-  els.etaHelp.textContent = `${source}. Time left is a rough estimate for the full remaining search; a match may appear sooner. Paused and offline time are excluded.`;
+  els.etaHelp.textContent = `${source}. Rough estimate.`;
   els.nextIndexValue.textContent = formatNumber(status.nextCandidateIndex);
   els.attemptsValue.textContent = formatNumber(status.totalVerified);
   els.reusedValue.textContent = formatNumber(status.reusedCandidateCount ?? status.reusedCount ?? 0);
@@ -437,8 +438,8 @@ function renderStatus(status) {
   els.checkpointValue.textContent = checkpointAge(status.lastCheckpointAt);
   els.errorValue.textContent = cleanErrorCode(status.errorCode) || 'None';
   els.controlHelp.textContent = status.operationInProgress
-    ? `${titleCase(status.operationInProgress)} in progress. Controls will be available when it finishes.`
-    : 'Pausing or stopping saves progress. After an interruption, unfinished checks may safely repeat.';
+    ? `${titleCase(status.operationInProgress)} in progress…`
+    : 'Progress saves automatically.';
   renderBenchmark(status); renderResult(status); renderSetup();
 }
 async function refreshStatus({ announceErrors = true } = {}) {
@@ -475,11 +476,11 @@ async function setupAction(action) {
     const body = ['restore', 'restart'].includes(action) ? {} : action === 'measure' ? { mode: setup.mode, walletPath: setup.walletPath } : setup;
     const result = await post(`/api/setup/${action}`, body);
     if (action === 'measure') {
-      notice(`Wallet speed measured at ${formatRate(result.measurement?.guessesPerSecond)} checks/sec. The estimate below uses this measurement.`);
+      notice(`Wallet speed: ${formatRate(result.measurement?.guessesPerSecond)} checks/sec.`);
     } else {
       appState.editing = false; appState.savedJobAvailable = true;
       if (result.status) renderStatus(result.status);
-      notice(action === 'restart' ? 'Search position reset. The previous checkpoint is archived. Completed checks remain reusable.' : result.status?.state === 'found' ? 'This saved search already found a match. See the reveal command below.' : 'Search prepared. Review the estimate, then start or resume recovery.');
+      notice(action === 'restart' ? 'Search reset. The previous checkpoint is archived; saved checks remain reusable.' : result.status?.state === 'found' ? 'A match was already found. See the reveal command below.' : 'Search prepared. Start or resume recovery.');
       els.progressPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   } catch (error) { notice(friendlyError(error, action === 'measure' ? 'wallet measurement' : 'search preparation'), true); }
