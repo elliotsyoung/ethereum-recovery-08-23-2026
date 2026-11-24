@@ -120,6 +120,7 @@ a { color: inherit; }
   box-shadow: 0 24px 70px rgb(0 0 0 / 18%);
 }
 .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.setup-heading-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
 .form-section {
   display: grid;
@@ -330,7 +331,8 @@ details > summary { cursor: pointer; list-style-position: inside; }
 .estimate-duration { margin-top: 16px; color: var(--accent-bright); font-size: 1.28rem; font-weight: 650; }
 .estimate-scenarios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
 .estimate-scenarios p { padding: 13px 15px; color: var(--muted-strong); border: 1px solid var(--line); border-radius: 10px; font-size: .98rem; }
-#measureBtn { margin-top: 18px; }
+.preview-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.preview-actions:has(> button:not([hidden])) { margin-top: 18px; }
 .preview-warnings { margin: 18px 0 0; padding-left: 24px; color: var(--warning); font-size: 1rem; }
 .question-suggestions, .coverage-review { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line-strong); }
 .question-suggestions ul, .coverage-review ul { margin: 14px 0 0; padding-left: 24px; color: var(--muted-strong); font-size: 1rem; }
@@ -367,6 +369,45 @@ summary { width: fit-content; color: var(--accent-bright); font-size: 1.02rem; c
 .detail-grid dd { font-size: 1rem; overflow-wrap: anywhere; }
 .restart-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
 
+.estimate-dialog {
+  width: min(620px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: clamp(16px, 4vw, 28px);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 45%);
+}
+.estimate-dialog::backdrop { background: rgb(5 8 14 / 78%); }
+.estimate-dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.estimate-dialog-heading h2 { font-size: clamp(1.3rem, 4vw, 1.8rem); line-height: 1.15; }
+.estimate-dialog-heading button { min-height: 44px; padding: 8px 13px; font-size: .95rem; }
+.estimate-example-field { display: grid; gap: 6px; margin: 20px 0 14px; }
+.estimate-example-field select { min-height: 48px; padding-block: 10px; background-position-y: 20px; }
+.estimate-example-summary {
+  padding: 12px 14px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.estimate-example-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.estimate-example-summary dt { color: var(--muted); font-size: .9rem; }
+.estimate-example-summary dd { font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.estimate-table { width: 100%; margin-top: 16px; table-layout: fixed; border-collapse: collapse; font-size: .93rem; }
+.estimate-table caption { padding-bottom: 6px; color: var(--muted); text-align: left; }
+.estimate-table th, .estimate-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.estimate-table th { color: var(--muted-strong); }
+.estimate-table td { font-variant-numeric: tabular-nums; }
+.estimate-table td p + p { margin-top: 6px; }
+.estimate-example-table :is(th, td):last-child { width: 40%; text-align: right; }
+
 [hidden] { display: none !important; }
 
 @media (max-width: 960px) {
@@ -398,6 +439,7 @@ summary { width: fit-content; color: var(--accent-bright); font-size: 1.02rem; c
   .panel { padding: 22px 18px; border-radius: 14px; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .section-heading button { width: 100%; }
+  .setup-heading-actions { width: 100%; }
   .button-row { grid-template-columns: 1fr; }
   .preview-heading { align-items: flex-start; flex-direction: column; }
   .preview-total { justify-content: flex-start; text-align: left; }

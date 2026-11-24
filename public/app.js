@@ -19,6 +19,33 @@ const LAYOUTS = [
   ['between', 'Fragment + digits + Fragment + symbols'],
   ['split', 'Fragment + digits + Fragment + digits + symbols']
 ];
+const EXAMPLE_ROWS_PER_SECOND = 10;
+const ESTIMATE_EXAMPLES = [
+  {
+    label: 'One numbered series',
+    settings: 'Include 120 numbered records from one series.',
+    total: 120,
+    samples: ['A-001', 'A-002', 'A-120']
+  },
+  {
+    label: 'Two separate series',
+    settings: 'Include 40,000 records from each of two series with no overlap.',
+    total: 40_000 + 40_000,
+    samples: ['B-00001', 'B-00002', 'C-40000']
+  },
+  {
+    label: 'Selected groups',
+    settings: 'Include 5 groups, 20 categories per group, and 100,000 records per category.',
+    total: 5 * 20 * 100_000,
+    samples: ['G1-C1-1', 'G1-C1-2', 'G5-C20-100000']
+  },
+  {
+    label: 'All groups',
+    settings: 'Include 100 groups, 100 categories per group, and 1,000,000 records per category.',
+    total: 100 * 100 * 1_000_000,
+    samples: ['G1-C1-1', 'G1-C1-2', 'G100-C100-1000000']
+  }
+];
 const appState = {
   sessionToken: null, status: null, pollTimer: null, polling: false,
   statusRequestFailed: false, action: null, setupEnabled: false,
@@ -39,6 +66,9 @@ const els = Object.fromEntries([
   'legacyNotice', 'memoryNotesInput', 'previewDuration', 'estimateScenarios',
   'measurementHelp', 'measureBtn', 'coveragePanel', 'coverageList', 'coverageConfirm',
   'questionSuggestions', 'suggestionList', 'reusedValue',
+  'estimateExamplesBtn', 'estimateExamplesDialog', 'estimateExamplesHelp', 'estimateExampleInput',
+  'estimateExampleSettings', 'estimateExampleCount', 'estimateExampleDuration', 'estimateExampleRows',
+  'batchEstimateBtn', 'batchEstimateDialog', 'batchEstimateHelp', 'batchEstimateCount', 'batchEstimateTimes',
   'previewPanel', 'previewCount', 'previewDetails', 'previewWarnings', 'previewBtn',
   'configureBtn', 'setupHint', 'progressPanel', 'progressHeading', 'readinessBadge',
   'resultBanner', 'verifiedValue', 'remainingValue', 'completeValue', 'uniqueTotalValue',
@@ -100,6 +130,29 @@ function duration(value) {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
+}
+function exampleDuration(position) {
+  const seconds = position / EXAMPLE_ROWS_PER_SECOND;
+  return seconds < 1 ? `${formatNumber(seconds, 1)}s` : duration(seconds);
+}
+function renderEstimateExample() {
+  const { settings, total, samples } = ESTIMATE_EXAMPLES[els.estimateExampleInput.value];
+  const totalText = formatNumber(total);
+  els.estimateExampleSettings.textContent = settings;
+  els.estimateExampleCount.textContent = totalText;
+  els.estimateExampleDuration.textContent = exampleDuration(total);
+  const positions = [1, 2, total];
+  const rows = samples.map((sample, index) => {
+    const position = positions[index];
+    const row = document.createElement('tr');
+    for (const text of [sample, exampleDuration(position), `${formatNumber(position)} of ${totalText}`]) {
+      const cell = document.createElement('td');
+      cell.textContent = text;
+      row.append(cell);
+    }
+    return row;
+  });
+  els.estimateExampleRows.replaceChildren(...rows);
 }
 function cleanErrorCode(value) {
   return typeof value === 'string' && /^[a-z0-9_-]{1,100}$/i.test(value) ? value.toUpperCase() : null;
@@ -295,6 +348,19 @@ function renderPreview(preview) {
   }
   els.questionSuggestions.hidden = !els.suggestionList.children.length;
 }
+function showBatchEstimate() {
+  if (els.batchEstimateBtn.disabled || els.batchEstimateBtn.hidden) return;
+  els.batchEstimateCount.textContent = els.previewCount.textContent;
+  els.batchEstimateHelp.textContent = els.measurementHelp.textContent;
+  const times = Array.from(els.estimateScenarios.children, (item) => item.textContent);
+  if (!times.length) times.push(els.previewDuration.textContent);
+  els.batchEstimateTimes.replaceChildren(...times.map((text) => {
+    const item = document.createElement('p');
+    item.textContent = text;
+    return item;
+  }));
+  els.batchEstimateDialog.showModal();
+}
 async function previewSearch({ automatic = false } = {}) {
   if (!appState.sessionToken || busy() || !appState.editing) return;
   if (!automatic && !validateForm()) return;
@@ -337,9 +403,12 @@ function renderControls() {
   els.toggleSetupBtn.textContent = appState.editing ? 'Close setup' : 'Edit search';
   els.setupFields.disabled = !canEdit;
   els.previewBtn.disabled = !canEdit;
-  const coverageReady = els.modeInput.value === 'DEMO' || (appState.previewKey === JSON.stringify(readSetup()) && appState.preview?.runnable !== false && els.coverageConfirm.checked);
+  const previewMatches = appState.previewKey === JSON.stringify(readSetup());
+  const coverageReady = els.modeInput.value === 'DEMO' || (previewMatches && appState.preview?.runnable !== false && els.coverageConfirm.checked);
   els.configureBtn.disabled = !canEdit || !coverageReady;
   els.measureBtn.disabled = !canEdit || els.modeInput.value === 'DEMO' || !els.walletInput.value.trim();
+  els.batchEstimateBtn.hidden = !appState.preview;
+  els.batchEstimateBtn.disabled = !canEdit || !previewMatches || appState.previewPending;
   els.restoreBtn.disabled = !connected || busy();
   els.restartRow.hidden = !appState.setupEnabled || !appState.configured;
   els.restartBtn.disabled = !canEdit;
@@ -516,6 +585,21 @@ els.toggleSetupBtn.addEventListener('click', async () => {
 });
 els.restartBtn.addEventListener('click', () => setupAction('restart'));
 els.measureBtn.addEventListener('click', () => setupAction('measure'));
+els.batchEstimateBtn.addEventListener('click', showBatchEstimate);
+els.batchEstimateDialog.addEventListener('close', () => els.batchEstimateBtn.focus());
+for (const [index, example] of ESTIMATE_EXAMPLES.entries()) {
+  const option = document.createElement('option');
+  option.value = String(index);
+  option.textContent = example.label;
+  els.estimateExampleInput.append(option);
+}
+els.estimateExamplesHelp.textContent = `Fictional batches at an assumed rate of ${EXAMPLE_ROWS_PER_SECOND} sample rows per second.`;
+els.estimateExamplesBtn.addEventListener('click', () => {
+  renderEstimateExample();
+  els.estimateExamplesDialog.showModal();
+});
+els.estimateExampleInput.addEventListener('change', renderEstimateExample);
+els.estimateExamplesDialog.addEventListener('close', () => els.estimateExamplesBtn.focus());
 els.coverageConfirm.addEventListener('change', renderControls);
 els.broadenBtn.addEventListener('click', () => {
   if (busy()) return;

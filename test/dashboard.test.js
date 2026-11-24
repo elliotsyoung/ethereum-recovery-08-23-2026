@@ -166,6 +166,35 @@ test('preview preserves enormous exact counts and labels illustrative time hones
   assert.equal(app.elements.get('coverageList').children[0].textContent, 'All positions remain open.');
 });
 
+test('batch estimate uses the exact displayed preview and is unavailable when it becomes stale', () => {
+  const app = client();
+  const trigger = app.elements.get('batchEstimateBtn');
+  const dialog = app.elements.get('batchEstimateDialog');
+  let opens = 0;
+  dialog.showModal = () => { opens += 1; };
+  app.context.preview = {
+    candidateCountExact: '12345678901234567890',
+    estimate: { source: 'illustrative', scenarios: [{ guessesPerSecond: 10, seconds: 120 }] }
+  };
+  app.run('applyDefaults(); renderControls();');
+  assert.equal(trigger.hidden, true);
+  app.run('renderPreview(preview); appState.previewKey = JSON.stringify(readSetup()); renderControls();');
+  assert.equal(trigger.hidden, false);
+  assert.equal(trigger.disabled, false);
+  trigger.listeners.click();
+  assert.equal(opens, 1);
+  assert.equal(app.elements.get('batchEstimateCount').textContent, app.elements.get('previewCount').textContent);
+  assert.equal(app.elements.get('batchEstimateHelp').textContent, app.elements.get('measurementHelp').textContent);
+  assert.equal(app.elements.get('batchEstimateTimes').children[0].textContent, 'If 10 checks/sec: 2m 0s');
+  app.run('appState.previewPending = true; renderControls();');
+  assert.equal(trigger.disabled, true);
+  trigger.listeners.click();
+  app.run('invalidatePreview();');
+  assert.equal(trigger.hidden, true);
+  trigger.listeners.click();
+  assert.equal(opens, 1);
+});
+
 test('out-of-order preview responses never replace the current filter estimate', async () => {
   const pending = [];
   const app = client((url, options) => new Promise((resolve) => pending.push({ url, options, resolve })));

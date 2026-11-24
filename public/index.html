@@ -29,7 +29,13 @@
       <div id="errorBanner" class="notice notice-error" role="alert" hidden></div>
 
       <section id="setupPanel" class="panel setup-panel" aria-labelledby="setupHeading" hidden>
-        <div class="section-heading"><h2 id="setupHeading">Set up a search</h2><button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button></div>
+        <div class="section-heading">
+          <h2 id="setupHeading">Set up a search</h2>
+          <div class="setup-heading-actions">
+            <button id="estimateExamplesBtn" class="button-quiet" type="button" aria-haspopup="dialog" aria-controls="estimateExamplesDialog">Estimate examples</button>
+            <button id="toggleSetupBtn" class="button-quiet" type="button" hidden>Edit search</button>
+          </div>
+        </div>
         <div id="savedSetup" class="restore-row" hidden><p>Saved search</p><button id="restoreBtn" class="button-secondary" type="button">Restore</button></div>
         <div id="setupSummary" class="setup-summary" hidden></div>
         <form id="setupForm" autocomplete="off">
@@ -116,7 +122,11 @@
           <div id="previewPanel" class="preview-panel" role="status" aria-live="polite" hidden>
             <div class="preview-heading"><div><p class="eyebrow">ESTIMATE</p><h3>Search size</h3></div><div class="preview-total"><strong id="previewCount">—</strong><span>possible passwords</span></div></div>
             <p id="previewDetails" class="status-copy"></p><p id="previewDuration" class="estimate-duration"></p><div id="estimateScenarios" class="estimate-scenarios"></div>
-            <p id="measurementHelp" class="status-copy">Measure wallet speed for a better estimate.</p><button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
+            <p id="measurementHelp" class="status-copy">Measure wallet speed for a better estimate.</p>
+            <div class="preview-actions">
+              <button id="measureBtn" class="button-secondary" type="button">Measure wallet speed</button>
+              <button id="batchEstimateBtn" class="button-quiet" type="button" aria-haspopup="dialog" aria-controls="batchEstimateDialog" hidden>View batch estimate</button>
+            </div>
             <ul id="previewWarnings" class="preview-warnings" hidden></ul>
             <div id="questionSuggestions" class="question-suggestions" hidden><h3>Useful reminders</h3><ul id="suggestionList"></ul></div>
             <div id="coveragePanel" class="coverage-review"><h3>Check your coverage</h3><ul id="coverageList"></ul><label class="checkbox-inline"><input id="coverageConfirm" type="checkbox" /> I’ve reviewed this coverage</label></div>
@@ -144,5 +154,39 @@
         <div id="restartRow" class="restart-row" hidden><p class="status-copy">Saved progress can be reused.</p><button id="restartBtn" class="button-quiet" type="button">Restart from zero</button></div>
       </section>
     </main>
+    <dialog id="estimateExamplesDialog" class="estimate-dialog" aria-labelledby="estimateExamplesHeading" aria-describedby="estimateExamplesHelp">
+      <div class="estimate-dialog-heading">
+        <h2 id="estimateExamplesHeading">Batch estimate examples</h2>
+        <form method="dialog"><button class="button-quiet" type="submit">Close</button></form>
+      </div>
+      <p id="estimateExamplesHelp" class="status-copy"></p>
+      <div class="estimate-example-field">
+        <label for="estimateExampleInput">Example batch</label>
+        <select id="estimateExampleInput" autofocus></select>
+      </div>
+      <div class="estimate-example-summary" aria-live="polite">
+        <p id="estimateExampleSettings" class="status-copy"></p>
+        <dl>
+          <div><dt>Batch size</dt><dd id="estimateExampleCount"></dd></div>
+          <div><dt>Total estimated time</dt><dd id="estimateExampleDuration"></dd></div>
+        </dl>
+      </div>
+      <table class="estimate-table estimate-example-table">
+        <caption>First two and final rows. Times are cumulative.</caption>
+        <thead><tr><th scope="col">Sample text</th><th scope="col">Estimated time</th><th scope="col">Position in batch</th></tr></thead>
+        <tbody id="estimateExampleRows"></tbody>
+      </table>
+    </dialog>
+    <dialog id="batchEstimateDialog" class="estimate-dialog" aria-labelledby="batchEstimateHeading" aria-describedby="batchEstimateHelp">
+      <div class="estimate-dialog-heading">
+        <h2 id="batchEstimateHeading">Current batch estimate</h2>
+        <form method="dialog"><button class="button-quiet" type="submit" autofocus>Close</button></form>
+      </div>
+      <p id="batchEstimateHelp" class="status-copy"></p>
+      <table class="estimate-table">
+        <thead><tr><th scope="col">Possible passwords</th><th scope="col">Estimated time</th></tr></thead>
+        <tbody><tr><td id="batchEstimateCount"></td><td id="batchEstimateTimes"></td></tr></tbody>
+      </table>
+    </dialog>
   </body>
 </html>
